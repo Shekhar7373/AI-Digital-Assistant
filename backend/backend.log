@@ -1,0 +1,4 @@
+[DB] Connected to MongoDB: mongodb://localhost:27017 / agentic_assistant
+[ScheduleService] Scheduler loop started with 30s polling.
+[ScheduleService] Scheduler loop stopped.
+[DB] Disconnected from MongoDB

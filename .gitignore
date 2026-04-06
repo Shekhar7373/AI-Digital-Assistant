@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+
+# Cache
+.cache/
+
+# IDE files
+.vscode/
+.idea/
+
+# Optional: frontend build
+frontend/build/
+
+# Optional: backend temp
+backend/tmp/
+
+# secrets
+backend/google_token.json
+backend/credentials.json
