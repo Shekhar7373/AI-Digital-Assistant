@@ -1,48 +1,6 @@
 {
-  "nNoCosxxr_VOoIRCVhdm7iIUtiam1u8E": {
-    "redirect_uri": "http://localhost"
-  },
-  "SApIEcQyiRd6FHgbaBSiqoFqfOYc5Hn6": {
-    "redirect_uri": "http://localhost"
-  },
-  "uzB76baSMsO7uWpbk6XuWwgb4y3YqKdj": {
-    "redirect_uri": "http://localhost"
-  },
-  "7cGj6DLxqGXKTvXHeXl58_roNmz72xMs": {
-    "redirect_uri": "http://localhost"
-  },
-  "q3NirIjzwWIb1I72NlQQfO2ITwhnKdD3": {
-    "redirect_uri": "http://localhost"
-  },
-  "DMxYdHEbZ3ygeYDzPI5v0zRQqaCX58KA": {
-    "redirect_uri": "http://localhost"
-  },
-  "hnj766UL2OWHuCVghK9qBDg_W5naIBRM": {
-    "redirect_uri": "http://localhost"
-  },
-  "tB8ckFF97SzP863zPMwiVzhYAmFrrYcz": {
-    "redirect_uri": "http://localhost:8000/integrations/google/callback"
-  },
-  "9Oh9PDLRadZRjP9Qj45cjrFF4b_mh4bM": {
-    "redirect_uri": "http://localhost:8000/integrations/google/callback"
-  },
-  "Ukmlgm1BUwGOo28qWhXB-sOAQ6B63W6k": {
-    "redirect_uri": "http://localhost:8000/integrations/google/callback"
-  },
-  "9Mluh-T7AbnfRwYkT4S7hbKWo3a_nnqx": {
+  "YZrJ4XWhXc_iRqoKexu3xWrJnQnBZ9gx": {
     "redirect_uri": "http://localhost:8000/integrations/google/callback",
-    "code_verifier": "dbWcEMntKW6ohCqikKfFuvjtpGKl7xCdxuwKK3Fwg-WaaJW5SR-bUoWUKlpQDHG1vnfilS44SqnQvAHZkp7AUw"
-  },
-  "ItKCYnSoRLzu-RaIQOFNW11Z0v4oYUTv": {
-    "redirect_uri": "http://localhost:8000/integrations/google/callback",
-    "code_verifier": "U3eWSC1t73TGJbcOjKa0kuBIXzvTZvUc6BvvG0BDxfP1MzxRmJXCqr9seVBGIm74XmcAIhT1uEtX-4kEIPayUA"
-  },
-  "gg-39h-3fDb83vblheq-hoeHc4G4HXP9": {
-    "redirect_uri": "http://localhost:8000/integrations/google/callback",
-    "code_verifier": "5Uj8WOmQNlXkqauyIQKF_3GPHlfcdr5y264um8M60UnYmnIoG6UJ9wttKh3CRSrYSXqa4Q2quoiH8S33GDA5sw"
-  },
-  "rOe5RKLLR-tjWYIcjZ9ZfAfzqTuEtYJr": {
-    "redirect_uri": "http://localhost:8000/integrations/google/callback",
-    "code_verifier": "jPYuunYZvOWbC6ONIzfGTVgdRz_xztyQCKTSAibGJjgTckB5P3KQKzOGlqo1whzx3Aq0V5Ao7LxuZgxr136fKw"
+    "code_verifier": "kvrYUX0fq1e8BnNlW4BehU0u6zRrtIc-K8Qg6AiEx8vCjQicZw72KHLYMcmXVuwXm4amndV55EEtV1j23Hv2jQ"
   }
 }

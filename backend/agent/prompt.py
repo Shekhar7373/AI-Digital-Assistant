@@ -21,6 +21,7 @@ Available tools:
   - schedule_meeting  : Schedule a new meeting
   - list_drive_files  : List Google Drive files
   - summarize_file    : Summarize a Drive file
+  - create_drive_doc  : Create a text file in Google Drive
   - web_research      : Search the web and summarize findings
   - send_email        : Send an email using Gmail
   - create_recurring_weather_email_schedule : Schedule a daily weather email
@@ -93,10 +94,11 @@ Available Tools (with dependencies):
 10. schedule_meeting - Schedule a new meeting. Needs: title, date, attendees
 11. list_drive_files - List Google Drive files. No dependencies
 12. summarize_file - Summarize a Drive file. Needs: file_id from list_drive_files
-13. web_research - Search the web. Needs: query parameter
-14. send_email - Send an email. Needs: recipient and message body
-15. create_recurring_weather_email_schedule - Create a recurring daily weather email schedule. Needs: recipient, city/current location, daily time
-16. wikipedia_search - Search Wikipedia. Needs: query parameter
+13. create_drive_doc - Create a text file in Google Drive. Needs: drive_content and optional drive_file_name
+14. web_research - Search the web. Needs: query parameter
+15. send_email - Send an email. Needs: recipient and message body
+16. create_recurring_weather_email_schedule - Create a recurring daily weather email schedule. Needs: recipient, city/current location, daily time
+17. wikipedia_search - Search Wikipedia. Needs: query parameter
 
 Tool Chaining Rules:
 - When user asks about emails: always sequence as fetch_emails → summarize_emails → [create_task if tasks needed]
@@ -104,6 +106,7 @@ Tool Chaining Rules:
 - When user asks about GitHub updates / PRs / issues: fetch_github_updates
 - When user asks about GitHub repos or repo analysis: fetch_github_repos → [analyze_github if analysis requested]
 - When user asks about Drive: list_drive_files → [summarize_file if summary requested]
+- When user asks to upload, save, or write text output to Drive: end with create_drive_doc
 - When user asks to search the web or research a topic: web_research
 - When user asks to email a summary or results: end with send_email
 - When user asks for recurring or daily weather email automation: use create_recurring_weather_email_schedule instead of fetch_weather + send_email
@@ -123,6 +126,7 @@ Given a user message, return ONLY a valid JSON (no explanation):
     "query": "search query or null",
     "recipient_email": "email address or null",
     "email_subject": "subject line or null",
+    "drive_file_name": "filename for Drive export or null",
     "schedule_frequency": "daily or null",
     "schedule_time": "HH:MM 24-hour or null",
     "timezone": "IANA timezone like Asia/Calcutta or null"
@@ -155,6 +159,9 @@ Examples:
 
 6. User: "Send today's weather report for Dharwad to me@example.com every day at 6 PM"
    → Include create_recurring_weather_email_schedule with recipient, city, frequency daily, and schedule_time 18:00
+
+7. User: "Upload this project summary to Drive"
+   → Include the upstream summary-producing step if needed, then create_drive_doc
 
 Rules:
 - ONLY return JSON, nothing else

@@ -6,11 +6,18 @@ Tasks can be created manually or auto-extracted from email summaries / meeting n
 """
 
 import json
+import os
 from datetime import datetime
 from agent.prompt import TASK_EXTRACTION_SYSTEM
 from db.mongodb import get_db
+from services.calendar_service import schedule_meeting_mock
+from services.schedule_service import create_task_reminder_schedule
 
 TASK_CACHE: list[dict] = []
+
+
+def _frontend_base_url() -> str:
+    return (os.getenv("FRONTEND_BASE_URL") or os.getenv("APP_FRONTEND_URL") or "").strip().rstrip("/")
 
 
 def _normalize_status(status: str) -> str:
@@ -87,6 +94,8 @@ async def create_task(
     source: str = "manual",
     due_date: str = "",
     status: str = "pending",
+    telegram_chat_id: str = "",
+    recipient_email: str = "",
 ) -> dict:
     """Create a single task and persist it to MongoDB."""
     task = {
@@ -97,9 +106,48 @@ async def create_task(
         "status": _normalize_status(status),    # pending | in_progress | done
         "due_date": due_date,
         "created_at": datetime.utcnow().isoformat(),
+        "url": f"{_frontend_base_url()}/" if _frontend_base_url() else "",
     }
     task["id"] = await _safe_insert_task(task) or f"task_{len(TASK_CACHE) + 1:03d}"
     TASK_CACHE.append(task.copy())
+
+    reminder_schedule = None
+    calendar_event = None
+    if due_date:
+        reminder_schedule = await create_task_reminder_schedule(
+            {
+                "task_id": task["id"],
+                "task_title": task["title"],
+                "due_date": due_date,
+                "telegram_chat_id": telegram_chat_id,
+                "recipient_email": recipient_email,
+            }
+        )
+        if reminder_schedule.get("error"):
+            task["reminder_error"] = reminder_schedule["error"]
+        else:
+            task["reminder_schedule_id"] = reminder_schedule.get("id", "")
+            task["reminder_schedule"] = reminder_schedule
+
+        calendar_event = await schedule_meeting_mock(
+            {
+                "title": f"Task: {task['title']}",
+                "description": task["description"] or f"Scheduled reminder for task {task['title']}",
+                "date": due_date,
+                "end_date": due_date,
+                "attendees": [],
+                "location": "",
+            }
+        )
+        if calendar_event.get("error"):
+            task["calendar_sync_error"] = calendar_event["error"]
+        else:
+            task["calendar_event_id"] = calendar_event.get("id", "")
+            task["calendar_event_url"] = calendar_event.get("url", "")
+            task["calendar_event"] = calendar_event
+
+    if reminder_schedule and not reminder_schedule.get("error"):
+        task["reminder_schedule_id"] = reminder_schedule.get("id", "")
     return task
 
 
@@ -166,8 +214,18 @@ async def create_task_from_params(params: dict) -> dict:
         priority=priority,
         source=source,
         due_date=due_date,
+        telegram_chat_id=(params.get("telegram_chat_id") or "").strip(),
+        recipient_email=(params.get("recipient_email") or "").strip(),
     )
-    return {"tasks_created": 1, "tasks": [task], "mode": "manual"}
+    schedules = [task["reminder_schedule"]] if task.get("reminder_schedule") else []
+    meetings = [task["calendar_event"]] if task.get("calendar_event") else []
+    return {
+        "tasks_created": 1,
+        "tasks": [task],
+        "mode": "manual",
+        "schedules": schedules,
+        "meetings": meetings,
+    }
 
 
 async def create_task_from_context(params: dict) -> dict:
@@ -220,6 +278,8 @@ async def create_tasks_from_summaries(summaries: list[dict] = None) -> dict:
         ]
 
     created = []
+    schedules = []
+    meetings = []
     for t in extracted:
         task = await create_task(
             title=t.get("title", "Untitled task"),
@@ -229,5 +289,9 @@ async def create_tasks_from_summaries(summaries: list[dict] = None) -> dict:
             due_date=t.get("due_date", ""),
         )
         created.append(task)
+        if task.get("reminder_schedule"):
+            schedules.append(task["reminder_schedule"])
+        if task.get("calendar_event"):
+            meetings.append(task["calendar_event"])
 
-    return {"tasks_created": len(created), "tasks": created}
+    return {"tasks_created": len(created), "tasks": created, "schedules": schedules, "meetings": meetings}

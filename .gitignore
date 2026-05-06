@@ -21,3 +21,8 @@ backend/tmp/
 # secrets
 backend/google_token.json
 backend/credentials.json
+backend/google_oauth_state.json
+
+# logs
+*.log
+*.err.log

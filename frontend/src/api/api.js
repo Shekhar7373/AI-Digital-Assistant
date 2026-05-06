@@ -75,6 +75,12 @@ export function exchangeGoogleCode(code, state, redirectUri) {
   });
 }
 
+export function logoutGoogle() {
+  return request("/integrations/google/logout", {
+    method: "POST",
+  });
+}
+
 export function fetchEmails({ refresh = false, limit = 8 } = {}) {
   return request(`/email/fetch?refresh=${refresh}&limit=${limit}`, {
     method: "POST",
@@ -85,12 +91,22 @@ export function fetchMeetings(limit = 6) {
   return request(`/calendar/meetings?limit=${limit}`);
 }
 
-export function getTasks() {
-  return request("/tasks");
+export function createCalendarMeeting(payload) {
+  return request("/calendar/schedule", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function getSchedules() {
   return request("/schedules");
+}
+
+export function createSchedule(payload) {
+  return request("/schedules", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function updateScheduleStatus(scheduleId, active) {
@@ -114,26 +130,6 @@ export function updatePreferences(payload) {
   return request("/preferences", {
     method: "PUT",
     body: JSON.stringify(payload),
-  });
-}
-
-export function createTask(payload) {
-  return request("/tasks", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateTaskStatus(taskId, status) {
-  return request(`/tasks/${taskId}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ status }),
-  });
-}
-
-export function deleteTask(taskId) {
-  return request(`/tasks/${taskId}`, {
-    method: "DELETE",
   });
 }
 

@@ -192,6 +192,26 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
 .artifact-card-body { min-height: 0; max-height: 220px; overflow: auto; padding-right: 4px; }
 .artifact-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 16px; }
 .compact-row { border-radius: 18px; }
+.results-layout { display: grid; gap: 18px; }
+.result-hero, .result-section, .result-chip {
+  border: 1px solid var(--border);
+  background: rgba(9, 18, 30, 0.48);
+  border-radius: 24px;
+}
+.result-hero, .result-section { padding: 18px; }
+.result-hero { display: grid; gap: 10px; }
+.result-strip { display: flex; flex-wrap: wrap; gap: 12px; }
+.result-chip {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  padding: 14px 16px;
+  flex: 1 1 200px;
+}
+.result-chip-value { font-size: 1rem; font-weight: 700; color: var(--text); }
+.results-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.result-section { display: grid; gap: 14px; align-content: start; }
+.result-section-head { display: grid; gap: 4px; }
 
 .priority-tag, .data-badge {
   display: inline-flex;
@@ -261,12 +281,14 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
   .header-actions { width: 100%; flex-wrap: wrap; }
   .search-shell { max-width: none; }
   .overview-strip, .insight-grid, .artifact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .results-sections { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
   .app-shell { padding: 14px; gap: 14px; }
   .top-bar, .left-rail, .right-rail, .panel-card, .composer, .artifact-card, .detail-pane { padding: 18px; border-radius: 24px; }
   .overview-strip, .insight-grid, .artifact-grid, .rail-summary-grid, .detail-grid { grid-template-columns: 1fr; }
+  .result-strip, .results-sections { display: grid; grid-template-columns: 1fr; }
   .panel-header, .log-line, .artifact-row, .data-card-top, .detail-pane-head { flex-direction: column; align-items: flex-start; }
   .plan-step { grid-template-columns: 32px 12px minmax(0, 1fr); }
 }

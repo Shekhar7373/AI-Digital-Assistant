@@ -13,6 +13,9 @@ from googleapiclient.discovery import build
 
 load_dotenv()
 
+CALENDAR_WRITE_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+DRIVE_WRITE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+
 
 def _credentials_path() -> Path:
     raw_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
@@ -40,6 +43,33 @@ def _state_path() -> Path:
 
 def get_google_scopes() -> list[str]:
     return [scope.strip() for scope in os.getenv("GOOGLE_OAUTH_SCOPES", "").split(",") if scope.strip()]
+
+
+def get_missing_google_scopes(required_scopes: list[str]) -> list[str]:
+    credentials = load_google_credentials()
+    if credentials is None:
+        return list(required_scopes)
+
+    granted_scopes = set(credentials.scopes or [])
+    return [scope for scope in required_scopes if scope not in granted_scopes]
+
+
+def google_action_error(action_name: str, required_scopes: list[str]) -> str:
+    missing_scopes = get_missing_google_scopes(required_scopes)
+    if not missing_scopes:
+        return ""
+
+    if load_google_credentials() is None:
+        return (
+            f"Google authorization is required to {action_name}. "
+            "Connect Google again and approve the write scopes before retrying."
+        )
+
+    missing_text = ", ".join(missing_scopes)
+    return (
+        f"Google is connected, but missing scopes required to {action_name}: {missing_text}. "
+        "Reconnect Google and approve the expanded write scopes before retrying."
+    )
 
 
 def _read_client_config() -> dict:
@@ -119,6 +149,8 @@ def get_google_credentials_status() -> dict:
         redirect_error = str(error)
 
     credentials = load_google_credentials()
+    calendar_write_missing = get_missing_google_scopes(CALENDAR_WRITE_SCOPES)
+    drive_write_missing = get_missing_google_scopes(DRIVE_WRITE_SCOPES)
     return {
         "configured": len(missing) == 0,
         "authorized": credentials is not None and credentials.valid,
@@ -132,6 +164,18 @@ def get_google_credentials_status() -> dict:
         "redirect_error": redirect_error,
         "scopes": scopes,
         "missing_fields": missing,
+        "write_capabilities": {
+            "calendar_event_create": {
+                "required_scopes": CALENDAR_WRITE_SCOPES,
+                "authorized": len(calendar_write_missing) == 0,
+                "missing_scopes": calendar_write_missing,
+            },
+            "drive_file_create": {
+                "required_scopes": DRIVE_WRITE_SCOPES,
+                "authorized": len(drive_write_missing) == 0,
+                "missing_scopes": drive_write_missing,
+            },
+        },
     }
 
 
@@ -209,6 +253,23 @@ def exchange_google_code(code: str, state: str | None = None, redirect_uri: str 
         "redirect_uri": resolved_redirect_uri,
         "scopes": credentials.scopes,
         "token_path": str(_token_path()),
+    }
+
+
+def disconnect_google_account() -> dict:
+    removed_files: list[str] = []
+    for path in [_token_path(), _state_path()]:
+        try:
+            if path.exists():
+                path.unlink()
+                removed_files.append(str(path))
+        except Exception as error:
+            raise RuntimeError(f"Failed to remove Google auth file at {path}: {error}") from error
+
+    return {
+        "authorized": False,
+        "removed_files": removed_files,
+        "message": "Local Google OAuth token and state were cleared.",
     }
 
 

@@ -2,7 +2,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from services.google_auth_service import create_google_auth_url, exchange_google_code, get_google_credentials_status
+from routes.dashboard_routes import reset_dashboard_state
+from services.google_auth_service import (
+    create_google_auth_url,
+    disconnect_google_account,
+    exchange_google_code,
+    get_google_credentials_status,
+)
 
 router = APIRouter()
 
@@ -30,6 +36,16 @@ async def google_auth_url(redirect_uri: str | None = None):
 async def google_exchange_code(body: GoogleExchangeRequest):
     try:
         return exchange_google_code(body.code, body.state, body.redirect_uri)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/google/logout")
+async def google_logout():
+    try:
+        result = disconnect_google_account()
+        dashboard = await reset_dashboard_state()
+        return {**result, "dashboard": dashboard}
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

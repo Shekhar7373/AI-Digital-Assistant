@@ -1,5 +1,5 @@
 """
-Recurring schedule service for background weather email delivery.
+Schedule service for recurring weather delivery and one-time task reminders.
 """
 
 from __future__ import annotations
@@ -11,16 +11,20 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from db.mongodb import get_db
-from services.notification_service import send_summary_email
+from services.notification_service import send_summary_email, send_telegram_notification
 from services.preferences_service import resolve_weather_location
 from services.weather_service import get_weather
 
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Calcutta")
 SCHEDULER_POLL_SECONDS = int(os.getenv("SCHEDULER_POLL_SECONDS", "30"))
-SUPPORTED_SCHEDULE_TYPES = {"weather_email"}
-SUPPORTED_RECURRENCES = {"daily"}
+SUPPORTED_SCHEDULE_TYPES = {"weather_email", "task_reminder"}
+SUPPORTED_RECURRENCES = {"daily", "once"}
 
 SCHEDULE_CACHE: list[dict] = []
+
+
+def _frontend_base_url() -> str:
+    return (os.getenv("FRONTEND_BASE_URL") or os.getenv("APP_FRONTEND_URL") or "").strip().rstrip("/")
 
 
 def _utc_now() -> datetime:
@@ -73,6 +77,39 @@ def _compute_next_run_at(time_local: str, timezone_name: str, now_utc: datetime 
     if next_local <= local_now:
         next_local = next_local + timedelta(days=1)
     return next_local.astimezone(timezone.utc).isoformat()
+
+
+def _resume_next_run_at(job: dict, now_utc: datetime | None = None) -> str:
+    now_utc = now_utc or _utc_now()
+    if job.get("recurrence") == "once":
+        due_raw = job.get("task_due_date") or job.get("next_run_at") or ""
+        due_at = _normalize_datetime(due_raw, job.get("timezone", APP_TIMEZONE))
+        if not due_at:
+            return (now_utc + timedelta(minutes=1)).isoformat()
+        try:
+            parsed_due = datetime.fromisoformat(due_at)
+        except Exception:
+            return (now_utc + timedelta(minutes=1)).isoformat()
+        if parsed_due <= now_utc:
+            return (now_utc + timedelta(minutes=1)).isoformat()
+        return due_at
+
+    return _compute_next_run_at(job.get("time_local", "18:00"), job.get("timezone", APP_TIMEZONE), now_utc=now_utc)
+
+
+def _normalize_datetime(value: str | None, timezone_name: str | None = None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return ""
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_timezone_or_default(timezone_name))
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def _serialize_job(job: dict) -> dict:
@@ -135,10 +172,9 @@ async def list_recurring_jobs(active_only: bool = False) -> list[dict]:
     if db is not None:
         try:
             jobs = await db.recurring_jobs.find(query, {"_id": 0}).sort("created_at", -1).to_list(length=200)
-            if jobs:
-                SCHEDULE_CACHE.clear()
-                SCHEDULE_CACHE.extend(jobs)
-                return jobs
+            SCHEDULE_CACHE.clear()
+            SCHEDULE_CACHE.extend(jobs)
+            return jobs
         except Exception as error:
             print(f"[ScheduleService] Failed to load schedules: {error}")
 
@@ -183,6 +219,45 @@ async def create_recurring_weather_email_schedule(params: dict) -> dict:
         "created_at": created_at,
         "updated_at": created_at,
         "next_run_at": _compute_next_run_at(time_local, timezone_name),
+        "url": f"{_frontend_base_url()}/" if _frontend_base_url() else "",
+    }
+
+    await _insert_job(job)
+    await _replace_cached_job(job)
+    return job
+
+
+async def create_task_reminder_schedule(params: dict) -> dict:
+    task_id = (params.get("task_id") or "").strip()
+    title = (params.get("task_title") or params.get("title") or "").strip()
+    due_date = _normalize_datetime(params.get("due_date") or params.get("date"), params.get("timezone") or APP_TIMEZONE)
+    if not task_id:
+        return {"error": "task_id is required to create a reminder schedule."}
+    if not due_date:
+        return {"error": "A valid due date is required to create a reminder schedule."}
+
+    created_at = datetime.utcnow().isoformat()
+    timezone_name = (params.get("timezone") or APP_TIMEZONE).strip() or APP_TIMEZONE
+    job = {
+        "id": f"schedule_{uuid4().hex[:12]}",
+        "name": (params.get("schedule_name") or f"Reminder for {title or 'task'}").strip(),
+        "schedule_type": "task_reminder",
+        "recurrence": "once",
+        "time_local": "",
+        "timezone": timezone_name,
+        "task_id": task_id,
+        "task_title": title or "Untitled task",
+        "task_due_date": due_date,
+        "recipient_email": (params.get("recipient_email") or "").strip(),
+        "telegram_chat_id": str(params.get("telegram_chat_id") or "").strip(),
+        "active": True,
+        "last_run_at": "",
+        "last_status": "scheduled",
+        "last_error": "",
+        "created_at": created_at,
+        "updated_at": created_at,
+        "next_run_at": due_date,
+        "url": f"{_frontend_base_url()}/" if _frontend_base_url() else "",
     }
 
     await _insert_job(job)
@@ -201,7 +276,7 @@ async def update_schedule_active(job_id: str, active: bool) -> dict:
         "active": bool(active),
         "updated_at": datetime.utcnow().isoformat(),
         "last_status": "scheduled" if active else "paused",
-        "next_run_at": _compute_next_run_at(job.get("time_local", "18:00"), job.get("timezone", APP_TIMEZONE)) if active else "",
+        "next_run_at": _resume_next_run_at(job) if active else "",
     }
 
     db = get_db()
@@ -262,6 +337,68 @@ async def _execute_weather_email_job(job: dict) -> dict:
     return {"weather": weather, "delivery": result}
 
 
+async def _complete_linked_task(job: dict):
+    task_id = job.get("task_id")
+    if not task_id:
+        return
+
+    db = get_db()
+    if db is None:
+        return
+    try:
+        await db.tasks.update_one(
+            {"id": task_id},
+            {"$set": {"updated_at": datetime.utcnow().isoformat()}},
+        )
+    except Exception as error:
+        print(f"[ScheduleService] Failed to touch linked task '{task_id}': {error}")
+
+
+async def _execute_task_reminder_job(job: dict) -> dict:
+    title = job.get("task_title", "Untitled task")
+    due_date = job.get("task_due_date", job.get("next_run_at", ""))
+    reminder_text = (
+        f"Task reminder\n\n"
+        f"Title: {title}\n"
+        f"Due: {due_date}\n"
+        f"Task ID: {job.get('task_id', 'unknown')}"
+    )
+
+    deliveries: list[dict] = []
+    telegram_chat_id = job.get("telegram_chat_id", "").strip()
+    recipient_email = job.get("recipient_email", "").strip()
+
+    if telegram_chat_id:
+        telegram_result = await send_telegram_notification(telegram_chat_id, reminder_text)
+        deliveries.append({"channel": "telegram", "result": telegram_result})
+
+    if recipient_email:
+        email_result = await send_summary_email(
+            recipient_email,
+            f"Task reminder: {title}",
+            reminder_text,
+            {
+                "query": f"Reminder for {title}",
+                "summary": reminder_text,
+                "items": [],
+            },
+        )
+        deliveries.append({"channel": "email", "result": email_result})
+
+    await _complete_linked_task(job)
+
+    if not deliveries:
+        return {
+            "deliveries": [{"channel": "dashboard", "result": {"ok": True}}],
+            "note": "Reminder reached its due time. Review it from the dashboard.",
+        }
+
+    errors = [item["result"].get("error") for item in deliveries if item["result"].get("error")]
+    if errors:
+        return {"error": "; ".join(errors), "deliveries": deliveries}
+    return {"deliveries": deliveries}
+
+
 async def run_due_schedules_once() -> list[dict]:
     now_utc = _utc_now()
     due_jobs = []
@@ -279,24 +416,31 @@ async def run_due_schedules_once() -> list[dict]:
     for job in due_jobs:
         await _mark_job(job["id"], last_status="running", last_error="")
         try:
-            result = await _execute_weather_email_job(job)
+            if job.get("schedule_type") == "task_reminder":
+                result = await _execute_task_reminder_job(job)
+            else:
+                result = await _execute_weather_email_job(job)
             success = not result.get("error")
+            is_once = job.get("recurrence") == "once"
             updates = {
                 "last_run_at": now_utc.isoformat(),
                 "last_status": "sent" if success else "failed",
                 "last_error": result.get("error", ""),
-                "next_run_at": _compute_next_run_at(job.get("time_local", "18:00"), job.get("timezone", APP_TIMEZONE), now_utc=now_utc + timedelta(seconds=1)),
+                "next_run_at": "" if is_once else _compute_next_run_at(job.get("time_local", "18:00"), job.get("timezone", APP_TIMEZONE), now_utc=now_utc + timedelta(seconds=1)),
+                "active": False if is_once and success else job.get("active", True),
             }
             await _mark_job(job["id"], **updates)
             refreshed = {**job, **updates}
             await _replace_cached_job(refreshed)
             outcomes.append({"id": job["id"], "ok": success, "result": result})
         except Exception as error:
+            is_once = job.get("recurrence") == "once"
             updates = {
                 "last_run_at": now_utc.isoformat(),
                 "last_status": "failed",
                 "last_error": str(error),
-                "next_run_at": _compute_next_run_at(job.get("time_local", "18:00"), job.get("timezone", APP_TIMEZONE), now_utc=now_utc + timedelta(seconds=1)),
+                "next_run_at": "" if is_once else _compute_next_run_at(job.get("time_local", "18:00"), job.get("timezone", APP_TIMEZONE), now_utc=now_utc + timedelta(seconds=1)),
+                "active": False if is_once else job.get("active", True),
             }
             await _mark_job(job["id"], **updates)
             refreshed = {**job, **updates}

@@ -32,6 +32,7 @@ weather_routes = _optional_route(lambda: __import__("routes.weather_routes", fro
 integration_routes = _optional_route(lambda: __import__("routes.integration_routes", fromlist=["router"]), "Integration routes")
 schedule_routes = _optional_route(lambda: __import__("routes.schedule_routes", fromlist=["router"]), "Schedule routes")
 preferences_routes = _optional_route(lambda: __import__("routes.preferences_routes", fromlist=["router"]), "Preference routes")
+telegram_routes = _optional_route(lambda: __import__("routes.telegram_routes", fromlist=["router"]), "Telegram routes")
 
 
 @asynccontextmanager
@@ -89,6 +90,8 @@ if schedule_routes is not None:
     app.include_router(schedule_routes.router, prefix="/schedules", tags=["Schedules"])
 if preferences_routes is not None:
     app.include_router(preferences_routes.router, prefix="/preferences", tags=["Preferences"])
+if telegram_routes is not None:
+    app.include_router(telegram_routes.router, prefix="/integrations/telegram", tags=["Telegram"])
 
 
 @app.get("/", tags=["Health"])

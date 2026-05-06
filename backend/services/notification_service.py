@@ -9,8 +9,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import html
+import os
 from datetime import datetime
 from email.message import EmailMessage
+
+import httpx
 
 from services.google_auth_service import build_google_service
 
@@ -27,10 +30,31 @@ def _normalize_subject(subject: str, context: dict | None = None) -> str:
 
 def _build_professional_email(body: str, context: dict | None = None) -> tuple[str, str]:
     context = context or {}
+    mode = context.get("mode", "").strip()
     query = context.get("query", "").strip()
     summary = (context.get("summary") or body or "").strip()
     items = context.get("items") or []
     generated_at = datetime.now().strftime("%d %b %Y, %I:%M %p")
+
+    if mode == "direct_message":
+        text_body = "\n".join(
+            [
+                summary,
+                "",
+                "Regards,",
+                "Agentic AI",
+            ]
+        )
+        html_body = "".join(
+            [
+                "<html><body style=\"margin:0;padding:24px;background:#f4f7fb;font-family:Segoe UI,Arial,sans-serif;color:#1f2937;\">",
+                "<div style=\"max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #dbe4f0;border-radius:16px;padding:24px;box-shadow:0 10px 30px rgba(15,23,42,0.08);\">",
+                f"<div style=\"font-size:16px;line-height:1.7;color:#0f172a;white-space:pre-wrap;\">{html.escape(summary)}</div>",
+                "<div style=\"margin-top:22px;font-size:14px;color:#475569;\">Regards,<br />Agentic AI</div>",
+                "</div></body></html>",
+            ]
+        )
+        return text_body, html_body
 
     intro = "Here is the requested briefing from Agentic AI."
     if query:
@@ -112,6 +136,36 @@ def _build_professional_email(body: str, context: dict | None = None) -> tuple[s
     return text_body, html_body
 
 
+def _normalize_briefing_body(body: str, context: dict | None = None) -> str:
+    context = context or {}
+    summary = (context.get("summary") or body or "").strip()
+    items = context.get("items") or []
+    query = context.get("query", "").strip()
+
+    lines: list[str] = []
+    if query:
+        lines.append(f"Subject: {query}")
+        lines.append("")
+
+    if summary:
+        lines.append(summary)
+
+    if items:
+        lines.append("")
+        lines.append("References:")
+        for index, item in enumerate(items[:5], start=1):
+            title = item.get("title", f"Reference {index}")
+            item_summary = (item.get("summary") or "").strip()
+            url = (item.get("url") or "").strip()
+            lines.append(f"{index}. {title}")
+            if item_summary:
+                lines.append(f"   {item_summary}")
+            if url:
+                lines.append(f"   {url}")
+
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
 def _send_email_sync(to_email: str, subject: str, body: str, context: dict | None = None) -> dict:
     service = build_google_service("gmail", "v1")
     message = EmailMessage()
@@ -139,7 +193,8 @@ async def send_summary_email(to_email: str, subject: str, body: str, context: di
         return {"error": "Email body is empty."}
 
     try:
-        return await asyncio.to_thread(_send_email_sync, to_email, subject, body, context)
+        normalized_body = _normalize_briefing_body(body, context)
+        return await asyncio.to_thread(_send_email_sync, to_email, subject, normalized_body, context)
     except Exception as error:
         message = str(error)
         if "insufficient authentication scopes" in message.lower() or "insufficientpermissions" in message.lower():
@@ -151,3 +206,22 @@ async def send_summary_email(to_email: str, subject: str, body: str, context: di
                 )
             }
         return {"error": f"Unable to send email: {error}"}
+
+
+async def send_telegram_notification(chat_id: str, text: str) -> dict:
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        return {"error": "Telegram bot token is not configured."}
+    if not chat_id:
+        return {"error": "Telegram chat id is required."}
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text[:4000]}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        return {"ok": True, "telegram": data}
+    except Exception as error:
+        return {"error": f"Unable to send Telegram notification: {error}"}

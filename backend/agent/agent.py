@@ -38,7 +38,7 @@ def _extract_duration_minutes(message: str) -> int | None:
 
 
 def _extract_time_phrase(message: str) -> str:
-    match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", message, re.IGNORECASE)
+    match = re.search(r"\b(\d{1,2})(?:[:\.](\d{2}))?\s*(am|pm)\b", message, re.IGNORECASE)
     return match.group(0) if match else ""
 
 
@@ -126,7 +126,7 @@ def _extract_research_query(message: str) -> str:
 
 def _extract_task_title(message: str) -> str:
     patterns = [
-        r"(?:named|name it|title it|called)\s+['\"]?([^'\"\n]+?)['\"]?(?:\s+(?:for|by|at|tomorrow|today|next)|$)",
+        r"(?:named|name it|title it|called|titled)\s+['\"]?([^'\"\n]+?)['\"]?(?:\s+(?:for|by|at|on|tomorrow|today|next)|$)",
         r"create (?:a )?task(?: for)?\s+['\"]?([^'\"\n]+?)['\"]?(?:\s+(?:for|by|at|tomorrow|today|next)|$)",
     ]
     for pattern in patterns:
@@ -145,16 +145,80 @@ def _extract_task_description(message: str) -> str:
     return ""
 
 
+def _extract_drive_file_name(message: str) -> str:
+    patterns = [
+        r"(?:named|name it|title it|call it)\s+['\"]?([^'\"\n]+?)['\"]?(?:\s+(?:in|to|for|on)|$)",
+        r"(?:upload|save|store|write).+?(?:as|named)\s+['\"]?([^'\"\n]+?)['\"]?(?:\s+(?:in|to|for|on)|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" .,")
+    return ""
+
+
+def _extract_direct_email_message(message: str) -> str:
+    patterns = [
+        r"(?:send|email|mail)\s+(.+?)\s+(?:to|at)\s+[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        r"(?:send|email|mail)\s+(.+?)\s+to\s+mail\s*:?\s*[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip(" '\".,")
+            lowered = candidate.lower()
+            if lowered.startswith("the summary") or lowered.startswith("summary of"):
+                return ""
+            return candidate
+    return ""
+
+
+def _default_email_subject(email_message: str, recipient_email: str) -> str:
+    if not recipient_email:
+        return ""
+    if email_message:
+        compact = " ".join(email_message.split())
+        if len(compact) <= 40:
+            return compact
+        return "Message from Agentic AI"
+    return "Agentic AI Summary"
+
+
 def _resolve_datetime_phrase(message: str, time_phrase: str) -> str:
     lowered = message.lower()
     base = datetime.now()
+    explicit_match = re.search(
+        r"\b(\d{1,2})[-/\s]([A-Za-z]{3,9}|\d{1,2})(?:[-/\s](\d{2,4}))?(?:\s+at|\s+)?(\d{1,2}(?:[:\.]\d{2})?\s*(?:am|pm))?\b",
+        message,
+        re.IGNORECASE,
+    )
+    if explicit_match:
+        month_lookup = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+        day = int(explicit_match.group(1))
+        month_token = explicit_match.group(2)
+        month = int(month_token) if month_token.isdigit() else month_lookup.get(month_token[:3].lower())
+        year_token = explicit_match.group(3)
+        if month:
+            year = int(year_token) if year_token and year_token.isdigit() else base.year
+            if year < 100:
+                year += 2000
+            try:
+                base = base.replace(year=year, month=month, day=day, hour=14, minute=0, second=0, microsecond=0)
+                if base < datetime.now() and not year_token:
+                    base = base.replace(year=base.year + 1)
+            except ValueError:
+                pass
+            time_phrase = explicit_match.group(4) or time_phrase
     if "tomorrow" in lowered:
         base = base + timedelta(days=1)
     elif "next week" in lowered:
         base = base + timedelta(days=7)
 
     if time_phrase:
-        time_match = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)", time_phrase, re.IGNORECASE)
+        time_match = re.search(r"(\d{1,2})(?:[:\.](\d{2}))?\s*(am|pm)", time_phrase, re.IGNORECASE)
         if time_match:
             hour = int(time_match.group(1))
             minute = int(time_match.group(2) or 0)
@@ -200,6 +264,7 @@ def _heuristic_parameters(message: str) -> dict:
 
     github_username = github_match.group(1) if github_match else ""
     recipient_email = attendees[0] if attendees else ""
+    email_message = _extract_direct_email_message(message)
 
     return {
         "priority": priority,
@@ -216,9 +281,11 @@ def _heuristic_parameters(message: str) -> dict:
         "city": _extract_city(message),
         "query": _extract_research_query(message),
         "recipient_email": recipient_email,
-        "email_subject": "Agentic AI Summary" if recipient_email else "",
+        "email_subject": _default_email_subject(email_message, recipient_email),
+        "email_message": email_message,
         "task_title": _extract_task_title(message),
         "task_description": _extract_task_description(message),
+        "drive_file_name": _extract_drive_file_name(message),
     }
 
 
@@ -237,6 +304,10 @@ def _heuristic_plan(message: str) -> dict:
     wants_web = any(token in lowered for token in ["search the web", "research", "look up", "internet", "web"])
     wants_send_email = any(token in lowered for token in ["send", "email me", "mail me"]) and bool(params["recipient_email"])
     wants_recurring = _is_recurring_request(message)
+    wants_drive_upload = (
+        "drive" in lowered
+        and any(token in lowered for token in ["upload", "save", "store", "write", "create file", "create doc"])
+    )
 
     if wants_recurring and wants_weather and wants_send_email:
         steps.append(
@@ -312,26 +383,27 @@ def _heuristic_plan(message: str) -> dict:
         )
 
     if wants_calendar:
-        steps.append(
-            {
-                "tool": "fetch_meetings",
-                "title": "Calendar Agent",
-                "description": "Looking up upcoming meetings",
-                "params": {},
-            }
-        )
-        if any(token in lowered for token in ["schedule", "book", "create meeting"]):
+        if any(token in lowered for token in ["schedule", "book", "create meeting", "create a meeting", "set up meeting"]):
             steps.append(
                 {
                     "tool": "schedule_meeting",
                     "title": "Schedule meeting",
-                    "description": "Creating a follow-up meeting",
+                    "description": "Creating a calendar event from the prompt",
                     "params": {
-                        "title": "Follow-up meeting",
+                        "title": params.get("task_title") or "Follow-up meeting",
                         "date": params["date"],
                         "duration_minutes": params["duration_minutes"] or 60,
                         "attendees": params["attendees"],
                     },
+                }
+            )
+        else:
+            steps.append(
+                {
+                    "tool": "fetch_meetings",
+                    "title": "Calendar Agent",
+                    "description": "Looking up upcoming meetings",
+                    "params": {},
                 }
             )
 
@@ -371,6 +443,18 @@ def _heuristic_plan(message: str) -> dict:
                 "title": "Research Agent",
                 "description": "Searching the web and collecting a concise summary",
                 "params": {"query": params["query"] or message},
+            }
+        )
+
+    if wants_drive_upload:
+        steps.append(
+            {
+                "tool": "create_drive_doc",
+                "title": "Upload to Drive",
+                "description": "Creating a text document in Google Drive from the requested content",
+                "params": {
+                    "drive_file_name": params.get("drive_file_name") or params.get("task_title") or "Agentic AI Note",
+                },
             }
         )
 
@@ -444,11 +528,17 @@ async def compose_response(user_message: str, tool_results: dict, history: list[
         elif tool == "fetch_meetings" and isinstance(result, list):
             context_parts.append(f"[{tool}] Retrieved {len(result)} upcoming meetings")
         elif tool == "schedule_meeting" and isinstance(result, dict):
-            context_parts.append(f"[{tool}] Scheduled: {result.get('title', 'Meeting')}")
+            detail = result.get("url", "")
+            suffix = f" ({detail})" if detail else ""
+            context_parts.append(f"[{tool}] Scheduled: {result.get('title', 'Meeting')}{suffix}")
         elif tool == "list_drive_files" and isinstance(result, list):
             context_parts.append(f"[{tool}] Retrieved {len(result)} files")
         elif tool == "summarize_file" and isinstance(result, dict):
             context_parts.append(f"[{tool}] {result.get('file_name', 'File')}: {result.get('summary', '')[:250]}")
+        elif tool == "create_drive_doc" and isinstance(result, dict):
+            detail = result.get("url", "")
+            suffix = f" ({detail})" if detail else ""
+            context_parts.append(f"[{tool}] Created Drive file: {result.get('name', 'Untitled file')}{suffix}")
         elif tool == "web_research" and isinstance(result, dict):
             context_parts.append(f"[{tool}] Summary: {result.get('summary', 'No findings')[:300]}")
         elif tool == "send_email" and isinstance(result, dict):
@@ -508,6 +598,8 @@ async def generate_execution_plan(message: str) -> dict:
                     step["params"].setdefault("priority", heuristics.get("priority") or "medium")
                     if step["params"].get("title"):
                         step["params"].setdefault("source", "manual")
+                if step.get("tool") == "create_drive_doc":
+                    step["params"].setdefault("drive_file_name", heuristics.get("drive_file_name") or "Agentic AI Note")
                 if step.get("tool") == "create_recurring_weather_email_schedule":
                     step["params"].setdefault("recipient_email", heuristics.get("recipient_email") or "")
                     step["params"].setdefault("city", heuristics.get("city") or "current location")
@@ -547,6 +639,7 @@ def _artifact_patch(tool: str, result: object) -> dict:
         "sent_email": {},
         "github_updates": {},
         "schedules": [],
+        "drive_docs": [],
     }
     if tool == "fetch_emails" and isinstance(result, list):
         patch["emails"] = result
@@ -555,10 +648,14 @@ def _artifact_patch(tool: str, result: object) -> dict:
         patch["summaries"] = result.get("summaries", [])
     elif tool == "create_task" and isinstance(result, dict):
         patch["tasks"] = result.get("tasks", [])
+        patch["schedules"] = result.get("schedules", [])
+        patch["meetings"] = result.get("meetings", [])
     elif tool == "fetch_weather" and isinstance(result, dict):
         patch["weather"] = result
     elif tool in {"fetch_meetings", "schedule_meeting"}:
         patch["meetings"] = result if isinstance(result, list) else [result]
+    elif tool == "create_drive_doc" and isinstance(result, dict):
+        patch["drive_docs"] = [result]
     elif tool == "fetch_github_repos" and isinstance(result, list):
         patch["repos"] = result
     elif tool == "fetch_github_updates" and isinstance(result, dict):
@@ -578,6 +675,15 @@ def _build_email_payload(message: str, artifacts: dict, params: dict) -> tuple[s
     research = artifacts.get("research", {}) or {}
     weather = artifacts.get("weather", {}) or {}
     summary = (artifacts.get("summary") or "").strip()
+    direct_email_message = (params.get("email_message") or "").strip()
+
+    if direct_email_message:
+        return direct_email_message, {
+            "mode": "direct_message",
+            "query": params.get("email_subject") or "Message from Agentic AI",
+            "summary": direct_email_message,
+            "items": [],
+        }
 
     if weather.get("city") and weather.get("temperature_c") is not None:
         city = weather.get("city", "your location")
@@ -624,6 +730,36 @@ def _build_email_payload(message: str, artifacts: dict, params: dict) -> tuple[s
     }
 
 
+def _build_drive_payload(message: str, artifacts: dict, params: dict) -> tuple[str, str]:
+    drive_name = (params.get("drive_file_name") or params.get("task_title") or "Agentic AI Note").strip()
+    research = artifacts.get("research", {}) or {}
+    summary = (artifacts.get("summary") or "").strip()
+    weather = artifacts.get("weather", {}) or {}
+    tasks = artifacts.get("tasks") or []
+
+    if research.get("summary"):
+        title = drive_name if drive_name != "Agentic AI Note" else f"Research Summary - {research.get('query', 'Agentic AI')}"
+        return title, research.get("summary", "")
+
+    if summary:
+        return drive_name, summary
+
+    if weather.get("city"):
+        body = (
+            f"Weather report for {weather.get('city', 'your location')}\n\n"
+            f"Temperature: {weather.get('temperature_c', 'unknown')} C\n"
+            f"Condition: {weather.get('condition', 'unknown')}\n"
+            f"Wind speed: {weather.get('wind_speed_kmh', 'unknown')} km/h"
+        )
+        return drive_name, body
+
+    if tasks:
+        lines = [f"- {task.get('title', 'Untitled task')}: {task.get('description', '')}".strip() for task in tasks]
+        return drive_name, "\n".join(lines)
+
+    return drive_name, message
+
+
 async def execute_execution_plan(session_id: str, message: str, plan: dict) -> dict:
     params = deepcopy(plan.get("parameters", {}))
     shared_params = dict(params)
@@ -641,6 +777,7 @@ async def execute_execution_plan(session_id: str, message: str, plan: dict) -> d
         "sent_email": {},
         "github_updates": {},
         "schedules": [],
+        "drive_docs": [],
     }
     logs = []
     executed_steps = []
@@ -692,6 +829,10 @@ async def execute_execution_plan(session_id: str, message: str, plan: dict) -> d
             shared_params["email_context"] = email_context
             if not shared_params.get("email_subject"):
                 shared_params["email_subject"] = email_context.get("query", "Agentic AI Summary")
+        elif step_copy["tool"] == "create_drive_doc":
+            drive_file_name, drive_content = _build_drive_payload(message, artifacts, shared_params)
+            shared_params["drive_file_name"] = drive_file_name
+            shared_params["drive_content"] = drive_content
         elif step_copy["tool"] == "create_recurring_weather_email_schedule":
             shared_params.setdefault("schedule_time", params.get("schedule_time") or "18:00")
             shared_params.setdefault("schedule_frequency", params.get("schedule_frequency") or "daily")

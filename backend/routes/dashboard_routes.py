@@ -33,6 +33,7 @@ def _default_state() -> dict:
             "sent_email": {},
             "github_updates": {},
             "schedules": [],
+            "drive_docs": [],
         },
         "plan_steps": [],
         "plan_definition": {"summary": "", "parameters": {}, "steps": []},

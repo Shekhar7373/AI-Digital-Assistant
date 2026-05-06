@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   approvePlan,
   cancelPlan,
-  createTask,
+  createCalendarMeeting,
+  createSchedule,
   deleteSchedule,
-  deleteTask,
   fetchEmails,
   fetchMeetings,
   generatePlan,
@@ -15,31 +15,19 @@ import {
   getGoogleStatus,
   getGithubRepos,
   getSchedules,
-  getTasks,
+  logoutGoogle,
   resetDashboardState,
   updatePreferences,
   updateScheduleStatus,
-  updateTaskStatus,
 } from "../api/api";
 
 const navItems = [
-  { key: "Dashboard", label: "Dashboard", short: "DB", description: "Plan, approve, and review workflows." },
-  { key: "Gmail", label: "Gmail", short: "GM", description: "Inbox activity and message summaries." },
-  { key: "Calendar", label: "Calendar", short: "CL", description: "Upcoming meetings and scheduling state." },
-  { key: "GitHub", label: "GitHub", short: "GH", description: "Repository activity, issues, and analysis." },
-  { key: "Tasks", label: "Tasks", short: "TK", description: "Action items created from agent outputs." },
-  { key: "Schedules", label: "Schedules", short: "SC", description: "Recurring automations and delivery timing." },
-  { key: "Drive", label: "Drive", short: "DR", description: "Files and summarization-ready documents." },
-];
-
-const dashboardHighlights = [
-  { key: "summary", title: "Summary", description: "Primary execution outcome" },
-  { key: "weather", title: "Weather", description: "Forecast and current conditions" },
-  { key: "research", title: "Research", description: "Web findings and references" },
-  { key: "tasks", title: "Tasks", description: "Created action items" },
-  { key: "schedules", title: "Schedules", description: "Recurring deliveries and automation status" },
-  { key: "github_updates", title: "GitHub", description: "Repository changes and issues" },
-  { key: "sent_email", title: "Delivery", description: "Outbound summary email state" },
+  { key: "Dashboard", label: "Dashboard", short: "DB", description: "Plan, approve, and review technical workflows." },
+  { key: "Gmail", label: "Gmail", short: "GM", description: "Project inbox activity and message summaries." },
+  { key: "Calendar", label: "Calendar", short: "CL", description: "Meeting prep, timing, and scheduling state." },
+  { key: "GitHub", label: "GitHub", short: "GH", description: "Repository activity, issues, PRs, and analysis." },
+  { key: "Schedules", label: "Schedules", short: "SC", description: "Trusted recurring automations and delivery timing." },
+  { key: "Drive", label: "Drive", short: "DR", description: "Specs, notes, and summarization-ready documents." },
 ];
 
 const formatCount = (value) => `${value ?? 0}`.padStart(2, "0");
@@ -56,6 +44,13 @@ function formatDisplayDate(value) {
 
 function cleanMultilineText(value) {
   return (value || "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function normalizeAttendees(value) {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function getInitialTheme() {
@@ -139,51 +134,39 @@ function normalizePanelItems(activeNav, records) {
     }));
   }
 
-  if (activeNav === "Tasks") {
-    return records.map((task) => ({
-      id: task.id,
-      badge: task.priority || "medium",
-      title: task.title || "Untitled task",
-      subtitle: task.status || "pending",
-      description: task.description || "No task description.",
-      meta: formatDisplayDate(task.created_at),
-      tone: task.priority === "high" ? "attention" : task.priority === "low" ? "success" : "warning",
-      roleLabel: "Task",
-      href: "",
-      hrefLabel: "",
-      detailTitle: task.title || "Untitled task",
-      detailSummary: `${task.priority || "medium"} priority`,
-      detailBody: cleanMultilineText(task.description || "No task description."),
-      detailSections: [
-        { label: "Status", value: task.status || "pending" },
-        { label: "Source", value: task.source || "manual" },
-        { label: "Created", value: formatDisplayDate(task.created_at) },
-        { label: "Due", value: formatDisplayDate(task.due_date) },
-      ],
-    }));
-  }
-
   if (activeNav === "Schedules") {
     return records.map((schedule) => ({
       id: schedule.id,
       badge: schedule.active ? "Active" : "Paused",
-      title: schedule.name || "Recurring schedule",
-      subtitle: `${schedule.time_local || "18:00"} · ${schedule.timezone || "Asia/Calcutta"}`,
-      description: `${schedule.city || "Preferred location"} -> ${schedule.recipient_email || "No recipient"}`,
+      title: schedule.name || "Schedule",
+      subtitle:
+        schedule.recurrence === "once"
+          ? `One-time · ${formatDisplayDate(schedule.next_run_at || schedule.task_due_date)}`
+          : `${schedule.time_local || "18:00"} · ${schedule.timezone || "Asia/Calcutta"}`,
+      description:
+        schedule.schedule_type === "task_reminder"
+          ? `${schedule.task_title || "Task reminder"}${schedule.telegram_chat_id ? " -> Telegram" : schedule.recipient_email ? ` -> ${schedule.recipient_email}` : " -> Dashboard"}`
+          : `${schedule.city || "Preferred location"} -> ${schedule.recipient_email || "No recipient"}`,
       meta: formatDisplayDate(schedule.next_run_at),
       tone: schedule.active ? "success" : "neutral",
       roleLabel: "Schedule",
       href: "",
       hrefLabel: "",
-      detailTitle: schedule.name || "Recurring schedule",
-      detailSummary: `${schedule.recurrence || "daily"} weather delivery`,
+      detailTitle: schedule.name || "Schedule",
+      detailSummary:
+        schedule.schedule_type === "task_reminder"
+          ? `${schedule.recurrence || "once"} task reminder`
+          : `${schedule.recurrence || "daily"} weather delivery`,
       detailBody: cleanMultilineText(
-        `City: ${schedule.city || "Preferred location"}\nRecipient: ${schedule.recipient_email || "Not set"}\nNext run: ${formatDisplayDate(schedule.next_run_at)}\nLast run: ${formatDisplayDate(schedule.last_run_at)}\nLast status: ${schedule.last_status || "scheduled"}${schedule.last_error ? `\nLast error: ${schedule.last_error}` : ""}`,
+        schedule.schedule_type === "task_reminder"
+          ? `Task: ${schedule.task_title || "Untitled task"}\nDue: ${formatDisplayDate(schedule.task_due_date || schedule.next_run_at)}\nTelegram chat: ${schedule.telegram_chat_id || "Not set"}\nRecipient: ${schedule.recipient_email || "Not set"}\nLast run: ${formatDisplayDate(schedule.last_run_at)}\nLast status: ${schedule.last_status || "scheduled"}${schedule.last_error ? `\nLast error: ${schedule.last_error}` : ""}`
+          : `City: ${schedule.city || "Preferred location"}\nRecipient: ${schedule.recipient_email || "Not set"}\nNext run: ${formatDisplayDate(schedule.next_run_at)}\nLast run: ${formatDisplayDate(schedule.last_run_at)}\nLast status: ${schedule.last_status || "scheduled"}${schedule.last_error ? `\nLast error: ${schedule.last_error}` : ""}`,
       ),
       detailSections: [
         { label: "Status", value: schedule.active ? "Active" : "Paused" },
-        { label: "Time", value: `${schedule.time_local || "18:00"} ${schedule.timezone || "Asia/Calcutta"}` },
-        { label: "Recipient", value: schedule.recipient_email || "Not set" },
+        { label: "Type", value: schedule.schedule_type || "weather_email" },
+        { label: "Time", value: schedule.recurrence === "once" ? formatDisplayDate(schedule.next_run_at || schedule.task_due_date) : `${schedule.time_local || "18:00"} ${schedule.timezone || "Asia/Calcutta"}` },
+        { label: "Recipient", value: schedule.recipient_email || schedule.telegram_chat_id || "Dashboard only" },
         { label: "Next run", value: formatDisplayDate(schedule.next_run_at) },
       ],
     }));
@@ -214,16 +197,16 @@ function normalizePanelItems(activeNav, records) {
   return records;
 }
 
-function Header({ searchTerm, onSearchChange, onConnectGoogle, onRefreshActive, onToggleTheme, theme, googleStatus, activeNav, busy }) {
+function Header({ searchTerm, onSearchChange, onConnectGoogle, onLogoutGoogle, onRefreshActive, onToggleTheme, theme, googleStatus, activeNav, busy }) {
   const connected = googleStatus?.authorized;
   return (
     <header className="top-bar">
       <div className="brand-cluster">
-        <div className="brand-logo" aria-hidden="true"><span>AID</span></div>
-        <div>
-          <div className="top-brand">AI Digital Assistant</div>
-          <div className="top-subtitle">Multi-tool planning, approvals, and execution in one workspace</div>
-        </div>
+          <div className="brand-logo" aria-hidden="true"><span>AID</span></div>
+          <div>
+          <div className="top-brand">Agentic AI</div>
+          <div className="top-subtitle">Trusted workflow assistant for developers and students</div>
+          </div>
       </div>
       <div className="header-actions">
         <label className="search-shell" htmlFor="global-search">
@@ -232,7 +215,8 @@ function Header({ searchTerm, onSearchChange, onConnectGoogle, onRefreshActive, 
         </label>
         <button className="secondary-button" type="button" onClick={onToggleTheme}>{themeLabel(theme)} theme</button>
         <button className="secondary-button" type="button" onClick={onRefreshActive} disabled={busy}>Refresh {activeNav}</button>
-        <button className="approve-button" type="button" onClick={onConnectGoogle} disabled={busy}>{connected ? "Google Connected" : "Connect Google"}</button>
+        <button className="approve-button" type="button" onClick={onConnectGoogle} disabled={busy}>{connected ? "Login Google" : "Connect Google"}</button>
+        {connected ? <button className="secondary-button" type="button" onClick={onLogoutGoogle} disabled={busy}>Logout Google</button> : null}
       </div>
     </header>
   );
@@ -240,7 +224,6 @@ function Header({ searchTerm, onSearchChange, onConnectGoogle, onRefreshActive, 
 
 function Sidebar({ activeNav, onSelectNav, onReset, dashboard, googleStatus }) {
   const summaryCount = dashboard?.plan_steps?.length ?? 0;
-  const taskCount = dashboard?.artifacts?.tasks?.length ?? 0;
   const emailCount = dashboard?.artifacts?.emails?.length ?? 0;
   const googleState = googleStatus?.authorized ? "Online" : "Pending";
   return (
@@ -249,12 +232,11 @@ function Sidebar({ activeNav, onSelectNav, onReset, dashboard, googleStatus }) {
         <div className="rail-badge">AID</div>
         <div>
           <div className="brand-title">Control Center</div>
-          <div className="brand-subtitle">Theme-aware workspace with expandable records and live actions.</div>
+          <div className="brand-subtitle">Technical workflow planning with explicit approvals for external actions.</div>
         </div>
       </div>
       <div className="rail-summary-grid">
         <div className="mini-stat-card"><span className="metric-label">Plan Steps</span><span className="metric-value">{formatCount(summaryCount)}</span></div>
-        <div className="mini-stat-card"><span className="metric-label">Tasks</span><span className="metric-value">{formatCount(taskCount)}</span></div>
         <div className="mini-stat-card"><span className="metric-label">Inbox</span><span className="metric-value">{formatCount(emailCount)}</span></div>
         <div className="mini-stat-card"><span className="metric-label">Google</span><span className="metric-value metric-value-small">{googleState}</span></div>
       </div>
@@ -276,10 +258,18 @@ function Sidebar({ activeNav, onSelectNav, onReset, dashboard, googleStatus }) {
 
 function OverviewStrip({ dashboard, googleStatus }) {
   const artifacts = dashboard.artifacts ?? {};
+  const calendarWrite = googleStatus?.write_capabilities?.calendar_event_create;
   const cards = [
     { title: "Execution State", value: dashboard.approval_label || "Idle", detail: dashboard.current_step || "Ready", tone: "info" },
-    { title: "Google Access", value: googleStatus?.authorized ? "Connected" : "Pending", detail: googleStatus?.active_redirect_uri || "Redirect not configured", tone: googleStatus?.authorized ? "success" : "warning" },
-    { title: "Tasks Drafted", value: `${artifacts.tasks?.length ?? 0}`, detail: `${artifacts.emails?.length ?? 0} emails cached`, tone: "attention" },
+    {
+      title: "Google Access",
+      value: googleStatus?.authorized ? "Connected" : "Pending",
+      detail: googleStatus?.authorized
+        ? (calendarWrite?.authorized ? "Calendar write ready" : "Reconnect for Calendar write access")
+        : (googleStatus?.active_redirect_uri || "Redirect not configured"),
+      tone: googleStatus?.authorized ? "success" : "warning",
+    },
+    { title: "Schedules", value: `${artifacts.schedules?.length ?? 0}`, detail: `${artifacts.emails?.length ?? 0} emails cached`, tone: "attention" },
     { title: "Token Usage", value: `${dashboard.token_usage?.used?.toLocaleString?.() ?? 0}`, detail: `of ${dashboard.token_usage?.limit?.toLocaleString?.() ?? 0}`, tone: "neutral" },
   ];
   return <section className="overview-strip">{cards.map((card) => <article key={card.title} className={`overview-card tone-${card.tone}`}><div className="overview-title">{card.title}</div><div className="overview-value">{card.value}</div><div className="overview-detail">{card.detail}</div></article>)}</section>;
@@ -289,8 +279,8 @@ function Composer({ value, onChange, onSubmit, onClear, busy }) {
   return (
     <form className="composer" onSubmit={onSubmit}>
       <div className="panel-header"><div><div className="eyebrow">Prompt Studio</div><h2>Describe the workflow you want</h2></div></div>
-      <label className="composer-label" htmlFor="prompt-input">The planner will generate the exact tool sequence before anything runs.</label>
-      <textarea id="prompt-input" className="composer-input" rows={5} value={value} onChange={(event) => onChange(event.target.value)} placeholder="Try: Check my emails, summarize the urgent ones, and create tasks. Or: Search the web for AI coding tools and email me the summary." />
+      <label className="composer-label" htmlFor="prompt-input">The planner gathers context autonomously, then asks for approval before external actions run.</label>
+      <textarea id="prompt-input" className="composer-input" rows={5} value={value} onChange={(event) => onChange(event.target.value)} placeholder="Try: Summarize my GitHub updates and draft tasks. Or: Review my coursework emails and prepare follow-ups." />
       <div className="composer-actions">
         <button className="approve-button" type="submit" disabled={busy || !value.trim()}>Generate Plan</button>
         <button className="secondary-button" type="button" onClick={onClear} disabled={busy}>Clear Dashboard</button>
@@ -328,26 +318,146 @@ function ResponseCard({ dashboard }) {
   return <section className="panel-card"><div className="panel-header"><div><div className="eyebrow">Response</div><h2>Agent response</h2></div></div><div className="response-copy">{dashboard.response || "Execution results will appear here after the plan runs."}</div></section>;
 }
 
-function ArtifactCard({ title, description, content, tone = "neutral" }) {
-  return <article className={`artifact-card tone-${tone}`}><div className="artifact-card-head"><div className="section-title">{title}</div><div className="artifact-card-subtitle">{description}</div></div><div className="artifact-card-body">{content}</div></article>;
-}
-
-function ArtifactsGrid({ artifacts }) {
+function ResultsPanel({ artifacts }) {
   const weather = artifacts.weather ?? {};
   const research = artifacts.research ?? {};
   const githubUpdates = artifacts.github_updates ?? {};
   const sentEmail = artifacts.sent_email ?? {};
-  const tasks = artifacts.tasks ?? [];
   const schedules = artifacts.schedules ?? [];
+  const hasSummary = Boolean(artifacts.summary);
+  const hasWeather = Boolean(weather.city);
+  const hasResearch = Boolean(research.summary);
+  const hasGithub = Boolean(githubUpdates.summary);
+  const hasDelivery = Boolean(sentEmail.to);
+  const hasSchedules = schedules.length > 0;
+  const hasResults = hasSummary || hasWeather || hasResearch || hasGithub || hasDelivery || hasSchedules;
+
+  if (!hasResults) {
+    return null;
+  }
+
   return (
-    <section className="artifact-grid">
-      <ArtifactCard title="Summary" description="Primary execution output" tone="warning" content={<p className="artifact-copy">{artifacts.summary || "No summary yet."}</p>} />
-      <ArtifactCard title="Weather" description="Current conditions" tone="info" content={weather.city ? <div className="artifact-stack"><div className="metric-value">{weather.city}</div><div className="artifact-copy">{weather.temperature_c} C, {weather.condition}</div><div className="artifact-copy">Wind {weather.wind_speed_kmh ?? "--"} km/h</div></div> : <div className="artifact-empty">Weather results appear here when used.</div>} />
-      <ArtifactCard title="Research" description="Web findings" tone="neutral" content={<p className="artifact-copy">{research.summary || "Web research results appear here when used."}</p>} />
-      <ArtifactCard title="Tasks" description="Created action items" tone="success" content={<div className="artifact-list">{tasks.length ? tasks.map((task) => <div key={task.id} className="artifact-row compact-row"><div><div className="step-title">{task.title}</div><div className="step-description">{task.description || "No details provided."}</div></div><span className={`priority-tag is-${task.priority}`}>{task.priority}</span></div>) : <div className="artifact-empty">No tasks created yet.</div>}</div>} />
-      <ArtifactCard title="Schedules" description="Recurring automations" tone="success" content={<div className="artifact-list">{schedules.length ? schedules.map((schedule) => <div key={schedule.id} className="artifact-row compact-row"><div><div className="step-title">{schedule.name}</div><div className="step-description">{schedule.time_local} {schedule.timezone} {"->"} {schedule.recipient_email}</div></div><span className={`priority-tag is-${schedule.active ? "low" : "medium"}`}>{schedule.active ? "active" : "paused"}</span></div>) : <div className="artifact-empty">No recurring jobs created in this session.</div>}</div>} />
-      <ArtifactCard title="GitHub Updates" description="Repo issues and PR activity" tone="info" content={<p className="artifact-copy">{githubUpdates.summary || "GitHub activity appears here when used."}</p>} />
-      <ArtifactCard title="Email Delivery" description="Outbound result" tone="attention" content={sentEmail.to ? <div className="artifact-stack"><div className="metric-value">Sent</div><div className="artifact-copy">{sentEmail.subject} to {sentEmail.to}</div></div> : <div className="artifact-empty">Outbound Gmail actions appear here when used.</div>} />
+    <section className="panel-card">
+      <div className="panel-header">
+        <div>
+          <div className="eyebrow">Results</div>
+          <h2>Outcome and next moves</h2>
+          <div className="section-subtitle">Only populated results are shown here after execution.</div>
+        </div>
+      </div>
+
+      <div className="results-layout">
+        {hasSummary ? (
+          <article className="result-hero tone-warning">
+            <div className="section-title">Execution summary</div>
+            <div className="response-copy">{artifacts.summary}</div>
+          </article>
+        ) : null}
+
+        <div className="result-strip">
+          {hasWeather ? (
+            <div className="result-chip tone-info">
+              <span className="metric-label">Weather</span>
+              <span className="result-chip-value">{weather.city}</span>
+              <span className="artifact-copy">{weather.temperature_c} C, {weather.condition}</span>
+            </div>
+          ) : null}
+          {hasResearch ? (
+            <div className="result-chip tone-neutral">
+              <span className="metric-label">Research</span>
+              <span className="result-chip-value">{research.query || "Summary ready"}</span>
+              <span className="artifact-copy">Web findings available</span>
+            </div>
+          ) : null}
+          {hasGithub ? (
+            <div className="result-chip tone-info">
+              <span className="metric-label">GitHub</span>
+              <span className="result-chip-value">{githubUpdates.repos?.length ?? 0} repos</span>
+              <span className="artifact-copy">Activity summarized</span>
+            </div>
+          ) : null}
+          {hasDelivery ? (
+            <div className="result-chip tone-attention">
+              <span className="metric-label">Delivery</span>
+              <span className="result-chip-value">Sent</span>
+              <span className="artifact-copy">{sentEmail.to}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="results-sections">
+          {hasGithub ? (
+            <article className="result-section tone-info">
+              <div className="result-section-head">
+                <div className="section-title">GitHub pulse</div>
+                <div className="artifact-card-subtitle">Recent repo issues and PR activity</div>
+              </div>
+              <div className="response-copy">{githubUpdates.summary}</div>
+            </article>
+          ) : null}
+
+          {hasResearch ? (
+            <article className="result-section tone-neutral">
+              <div className="result-section-head">
+                <div className="section-title">Research notes</div>
+                <div className="artifact-card-subtitle">Collected findings</div>
+              </div>
+              <div className="response-copy">{research.summary}</div>
+            </article>
+          ) : null}
+
+          {hasSchedules ? (
+            <article className="result-section tone-success">
+              <div className="result-section-head">
+                <div className="section-title">Automations</div>
+                <div className="artifact-card-subtitle">Trusted recurring workflows</div>
+              </div>
+              <div className="artifact-list">
+                {schedules.map((schedule) => (
+                  <div key={schedule.id} className="artifact-row compact-row">
+                    <div>
+                      <div className="step-title">{schedule.name}</div>
+                      <div className="step-description">
+                        {schedule.schedule_type === "task_reminder"
+                          ? `${schedule.task_title || "Task reminder"} -> ${schedule.telegram_chat_id || schedule.recipient_email || "dashboard"}`
+                          : `${schedule.time_local} ${schedule.timezone} -> ${schedule.recipient_email}`}
+                      </div>
+                    </div>
+                    <span className={`priority-tag is-${schedule.active ? "low" : "medium"}`}>{schedule.active ? "active" : "paused"}</span>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ) : null}
+
+          {hasWeather ? (
+            <article className="result-section tone-info">
+              <div className="result-section-head">
+                <div className="section-title">Weather snapshot</div>
+                <div className="artifact-card-subtitle">Current conditions</div>
+              </div>
+              <div className="artifact-stack">
+                <div className="metric-value">{weather.city}</div>
+                <div className="artifact-copy">{weather.temperature_c} C, {weather.condition}</div>
+                <div className="artifact-copy">Wind {weather.wind_speed_kmh ?? "--"} km/h</div>
+              </div>
+            </article>
+          ) : null}
+
+          {hasDelivery ? (
+            <article className="result-section tone-attention">
+              <div className="result-section-head">
+                <div className="section-title">Email delivery</div>
+                <div className="artifact-card-subtitle">Outbound result</div>
+              </div>
+              <div className="artifact-stack">
+                <div className="metric-value">Sent</div>
+                <div className="artifact-copy">{sentEmail.subject} to {sentEmail.to}</div>
+              </div>
+            </article>
+          ) : null}
+        </div>
+      </div>
     </section>
   );
 }
@@ -356,35 +466,19 @@ function LogsCard({ logs }) {
   return <section className="panel-card"><div className="panel-header"><div><div className="eyebrow">Execution Log</div><h2>Workflow trace</h2></div></div><div className="log-list">{logs?.length ? logs.map((log) => <div key={`${log.timestamp}-${log.message}`} className="log-line"><span className="log-stamp">{log.timestamp}</span><span>{log.message}</span></div>) : <div className="artifact-empty">Execution logs appear here after a plan runs.</div>}</div></section>;
 }
 
-function InsightsPanel({ dashboard }) {
-  const artifacts = dashboard.artifacts ?? {};
-  const cards = dashboardHighlights.map((item) => {
-    if (item.key === "tasks") return { ...item, value: `${artifacts.tasks?.length ?? 0} ready`, tone: "success" };
-    if (item.key === "schedules") return { ...item, value: `${artifacts.schedules?.length ?? 0} active`, tone: "success" };
-    if (item.key === "summary") return { ...item, value: artifacts.summary ? "Available" : "Waiting", tone: "warning" };
-    if (item.key === "weather") return { ...item, value: artifacts.weather?.city || "Inactive", tone: "info" };
-    if (item.key === "research") return { ...item, value: artifacts.research?.query || "Inactive", tone: "neutral" };
-    if (item.key === "github_updates") return { ...item, value: artifacts.github_updates?.repos?.length ? "Loaded" : "Inactive", tone: "info" };
-    return { ...item, value: artifacts.sent_email?.to || "Inactive", tone: "attention" };
-  });
-  return <section className="panel-card"><div className="panel-header"><div><div className="eyebrow">Artifacts</div><h2>Operational highlights</h2></div></div><div className="insight-grid">{cards.map((card) => <article key={card.key} className={`insight-card tone-${card.tone}`}><div className="insight-title">{card.title}</div><div className="insight-value">{card.value}</div><div className="insight-description">{card.description}</div></article>)}</div></section>;
-}
-
-function TaskQuickCreate({ form, onChange, onSubmit, busy }) {
+function CalendarQuickCreate({ form, onChange, onSubmit, busy }) {
   return (
     <form className="task-quick-form" onSubmit={onSubmit}>
-      <div className="section-title">Quick create</div>
-      <input className="top-search" value={form.title} onChange={(event) => onChange("title", event.target.value)} placeholder="Task title" />
-      <textarea className="composer-input task-form-textarea" value={form.description} onChange={(event) => onChange("description", event.target.value)} placeholder="Description" rows={3} />
+      <div className="section-title">Create meeting</div>
+      <input className="top-search" value={form.title} onChange={(event) => onChange("title", event.target.value)} placeholder="Meeting title" />
+      <textarea className="composer-input task-form-textarea" value={form.description} onChange={(event) => onChange("description", event.target.value)} placeholder="Agenda or notes" rows={3} />
       <div className="task-form-row">
-        <input className="top-search" value={form.due_date} onChange={(event) => onChange("due_date", event.target.value)} placeholder="Due date or ISO datetime" />
-        <select className="top-search task-select" value={form.priority} onChange={(event) => onChange("priority", event.target.value)}>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="low">low</option>
-        </select>
+        <input className="top-search" type="datetime-local" value={form.date} onChange={(event) => onChange("date", event.target.value)} />
+        <input className="top-search" value={form.duration_minutes} onChange={(event) => onChange("duration_minutes", event.target.value)} placeholder="Duration in minutes" />
       </div>
-      <button className="approve-button" type="submit" disabled={busy || !form.title.trim()}>Create task</button>
+      <input className="top-search" value={form.attendees} onChange={(event) => onChange("attendees", event.target.value)} placeholder="Attendees, comma-separated emails" />
+      <input className="top-search" value={form.location} onChange={(event) => onChange("location", event.target.value)} placeholder="Location or meeting link" />
+      <button className="approve-button" type="submit" disabled={busy || !form.title.trim() || !form.date}>Create calendar event</button>
     </form>
   );
 }
@@ -399,28 +493,52 @@ function PreferenceForm({ preferencesForm, onPreferencesChange, onPreferencesSav
   );
 }
 
+function ScheduleQuickCreate({ form, onChange, onSubmit, busy }) {
+  return (
+    <form className="task-quick-form" onSubmit={onSubmit}>
+      <div className="section-title">Create schedule</div>
+      <input className="top-search" value={form.recipient_email} onChange={(event) => onChange("recipient_email", event.target.value)} placeholder="Recipient email" />
+      <input className="top-search" value={form.city} onChange={(event) => onChange("city", event.target.value)} placeholder="City or weather location" />
+      <div className="task-form-row">
+        <input className="top-search" value={form.schedule_time} onChange={(event) => onChange("schedule_time", event.target.value)} placeholder="Time like 18:00" />
+        <input className="top-search" value={form.timezone} onChange={(event) => onChange("timezone", event.target.value)} placeholder="Timezone" />
+      </div>
+      <input className="top-search" value={form.schedule_name} onChange={(event) => onChange("schedule_name", event.target.value)} placeholder="Schedule name" />
+      <input className="top-search" value={form.email_subject} onChange={(event) => onChange("email_subject", event.target.value)} placeholder="Email subject" />
+      <button className="approve-button" type="submit" disabled={busy || !form.recipient_email.trim()}>Create schedule</button>
+    </form>
+  );
+}
+
 function DetailPane({
   item,
   meta,
-  taskForm,
-  onTaskFormChange,
-  onTaskCreate,
-  onTaskStatusChange,
-  onTaskDelete,
+  meetingForm,
+  onMeetingFormChange,
+  onMeetingCreate,
+  onDraftMeetingFromEmail,
   onScheduleStatusChange,
   onScheduleDelete,
-  taskBusy,
+  actionBusy,
   preferencesForm,
   onPreferencesChange,
   onPreferencesSave,
   preferencesBusy,
+  scheduleForm,
+  onScheduleFormChange,
+  onScheduleCreate,
 }) {
   if (!item) {
     return (
       <section className="detail-pane">
         <div className="artifact-empty">Select a {meta.label.toLowerCase()} item to inspect it in detail.</div>
-        {meta.key === "Tasks" ? <TaskQuickCreate form={taskForm} onChange={onTaskFormChange} onSubmit={onTaskCreate} busy={taskBusy} /> : null}
-        {meta.key === "Schedules" ? <PreferenceForm preferencesForm={preferencesForm} onPreferencesChange={onPreferencesChange} onPreferencesSave={onPreferencesSave} preferencesBusy={preferencesBusy} /> : null}
+        {meta.key === "Calendar" ? <CalendarQuickCreate form={meetingForm} onChange={onMeetingFormChange} onSubmit={onMeetingCreate} busy={actionBusy} /> : null}
+        {meta.key === "Schedules" ? (
+          <>
+            <ScheduleQuickCreate form={scheduleForm} onChange={onScheduleFormChange} onSubmit={onScheduleCreate} busy={actionBusy} />
+            <PreferenceForm preferencesForm={preferencesForm} onPreferencesChange={onPreferencesChange} onPreferencesSave={onPreferencesSave} preferencesBusy={preferencesBusy} />
+          </>
+        ) : null}
       </section>
     );
   }
@@ -434,24 +552,24 @@ function DetailPane({
         {(item.detailSections || []).map((section) => <div key={section.label} className="detail-chip"><span className="metric-label">{section.label}</span><span className="detail-chip-value">{section.value}</span></div>)}
       </div>
       <div className="detail-content"><div className="section-title">Full details</div><div className="detail-body">{item.detailBody}</div></div>
-      {meta.key === "Tasks" ? (
+      {meta.key === "Gmail" ? (
         <div className="detail-actions">
-          <div className="task-action-row">
-            <button className="secondary-button" type="button" onClick={() => onTaskStatusChange(item.id, "pending")} disabled={taskBusy}>Mark pending</button>
-            <button className="secondary-button" type="button" onClick={() => onTaskStatusChange(item.id, "in_progress")} disabled={taskBusy}>In progress</button>
-            <button className="secondary-button" type="button" onClick={() => onTaskStatusChange(item.id, "done")} disabled={taskBusy}>Done</button>
-          </div>
-          <button className="text-button danger-link" type="button" onClick={() => onTaskDelete(item.id)} disabled={taskBusy}>Delete task</button>
-          <TaskQuickCreate form={taskForm} onChange={onTaskFormChange} onSubmit={onTaskCreate} busy={taskBusy} />
+          <button className="secondary-button" type="button" onClick={() => onDraftMeetingFromEmail(item)} disabled={actionBusy}>Create meeting plan from email</button>
+        </div>
+      ) : null}
+      {meta.key === "Calendar" ? (
+        <div className="detail-actions">
+          <CalendarQuickCreate form={meetingForm} onChange={onMeetingFormChange} onSubmit={onMeetingCreate} busy={actionBusy} />
         </div>
       ) : null}
       {meta.key === "Schedules" ? (
         <div className="detail-actions">
           <div className="task-action-row">
-            <button className="secondary-button" type="button" onClick={() => onScheduleStatusChange(item.id, true)} disabled={taskBusy}>Resume</button>
-            <button className="secondary-button" type="button" onClick={() => onScheduleStatusChange(item.id, false)} disabled={taskBusy}>Pause</button>
+            <button className="secondary-button" type="button" onClick={() => onScheduleStatusChange(item.id, true)} disabled={actionBusy}>Resume</button>
+            <button className="secondary-button" type="button" onClick={() => onScheduleStatusChange(item.id, false)} disabled={actionBusy}>Pause</button>
           </div>
-          <button className="text-button danger-link" type="button" onClick={() => onScheduleDelete(item.id)} disabled={taskBusy}>Delete schedule</button>
+          <button className="text-button danger-link" type="button" onClick={() => onScheduleDelete(item.id)} disabled={actionBusy}>Delete schedule</button>
+          <ScheduleQuickCreate form={scheduleForm} onChange={onScheduleFormChange} onSubmit={onScheduleCreate} busy={actionBusy} />
           <PreferenceForm preferencesForm={preferencesForm} onPreferencesChange={onPreferencesChange} onPreferencesSave={onPreferencesSave} preferencesBusy={preferencesBusy} />
         </div>
       ) : null}
@@ -467,22 +585,25 @@ function DataPanel({
   loading,
   searchTerm,
   onReload,
-  taskForm,
-  onTaskFormChange,
-  onTaskCreate,
-  onTaskStatusChange,
-  onTaskDelete,
+  meetingForm,
+  onMeetingFormChange,
+  onMeetingCreate,
+  onDraftMeetingFromEmail,
   onScheduleStatusChange,
   onScheduleDelete,
-  taskBusy,
+  actionBusy,
   preferencesForm,
   onPreferencesChange,
   onPreferencesSave,
   preferencesBusy,
+  scheduleForm,
+  onScheduleFormChange,
+  onScheduleCreate,
 }) {
   const meta = getPanelMeta(activeNav);
   const filteredItems = items.filter((item) => itemMatchesSearch(item, searchTerm));
   const selectedItem = filteredItems.find((item) => item.id === selectedItemId) || filteredItems[0] || null;
+  const showDetailPane = filteredItems.length > 0 || meta.key === "Calendar" || meta.key === "Schedules";
   return (
     <section className="panel-card panel-card-large">
       <div className="panel-header">
@@ -490,11 +611,11 @@ function DataPanel({
         <button className="secondary-button" type="button" onClick={onReload}>Refresh data</button>
       </div>
       {loading ? <div className="artifact-empty">Loading {meta.label.toLowerCase()} data...</div> : null}
-      {!loading && !filteredItems.length ? <div className="artifact-empty">No {meta.label.toLowerCase()} records matched the current filter.</div> : null}
-      {!loading && filteredItems.length ? (
+      {!loading && !filteredItems.length && !showDetailPane ? <div className="artifact-empty">No {meta.label.toLowerCase()} records matched the current filter.</div> : null}
+      {!loading && showDetailPane ? (
         <div className="data-view-shell">
           <div className="data-card-grid">
-            {filteredItems.map((item) => (
+            {filteredItems.length ? filteredItems.map((item) => (
               <button key={item.id ?? item.title} type="button" className={`data-card tone-${item.tone || "neutral"} ${selectedItem?.id === item.id ? "is-selected" : ""}`} onClick={() => onSelectItem(item.id)}>
                 <div className="data-card-top"><span className={`data-badge tone-${item.tone || "neutral"}`}>{item.badge || meta.short}</span><span className="data-meta">{item.meta || ""}</span></div>
                 <div className="data-title">{item.title}</div>
@@ -502,23 +623,25 @@ function DataPanel({
                 <p className="artifact-copy">{item.description}</p>
                 <span className="link-button detail-trigger">View full details</span>
               </button>
-            ))}
+            )) : <div className="artifact-empty">No {meta.label.toLowerCase()} records matched the current filter.</div>}
           </div>
           <DetailPane
             item={selectedItem}
             meta={meta}
-            taskForm={taskForm}
-            onTaskFormChange={onTaskFormChange}
-            onTaskCreate={onTaskCreate}
-            onTaskStatusChange={onTaskStatusChange}
-            onTaskDelete={onTaskDelete}
+            meetingForm={meetingForm}
+            onMeetingFormChange={onMeetingFormChange}
+            onMeetingCreate={onMeetingCreate}
+            onDraftMeetingFromEmail={onDraftMeetingFromEmail}
             onScheduleStatusChange={onScheduleStatusChange}
             onScheduleDelete={onScheduleDelete}
-            taskBusy={taskBusy}
+            actionBusy={actionBusy}
             preferencesForm={preferencesForm}
             onPreferencesChange={onPreferencesChange}
             onPreferencesSave={onPreferencesSave}
             preferencesBusy={preferencesBusy}
+            scheduleForm={scheduleForm}
+            onScheduleFormChange={onScheduleFormChange}
+            onScheduleCreate={onScheduleCreate}
           />
         </div>
       ) : null}
@@ -529,10 +652,12 @@ function DataPanel({
 function RightRail({ dashboard, googleStatus, activeNav, onConnectGoogle, theme }) {
   const statusLabel = googleStatus?.authorized ? "Connected" : "Pending";
   const responseLength = dashboard.response?.length ?? 0;
+  const calendarWrite = googleStatus?.write_capabilities?.calendar_event_create;
+  const scopeStatus = calendarWrite?.authorized ? "Calendar write enabled" : "Calendar write missing";
   return (
     <aside className="right-rail">
-      <div className="rail-section"><div className="section-title">Brand</div><div className="brand-poster"><div className="poster-logo">AID</div><div><div className="poster-title">AI Digital Assistant</div><div className="artifact-copy">Theme mode: {themeLabel(theme)}. Expandable records are active across data panels.</div></div></div></div>
-      <div className="rail-section"><div className="section-title">Integrations</div><div className="metric-card"><div className="metric-label">Google status</div><div className="metric-value">{statusLabel}</div><div className="artifact-copy compact-copy">Redirect: {googleStatus?.active_redirect_uri || "Not configured"}</div><button className="link-button" type="button" onClick={onConnectGoogle}>Manage Google access</button></div></div>
+      <div className="rail-section"><div className="section-title">Brand</div><div className="brand-poster"><div className="poster-logo">AID</div><div><div className="poster-title">Agentic AI</div><div className="artifact-copy">A bounded workflow assistant for software projects, coursework, and technical collaboration.</div></div></div></div>
+      <div className="rail-section"><div className="section-title">Integrations</div><div className="metric-card"><div className="metric-label">Google status</div><div className="metric-value">{statusLabel}</div><div className="artifact-copy compact-copy">Redirect: {googleStatus?.active_redirect_uri || "Not configured"}</div><div className="artifact-copy compact-copy">{scopeStatus}</div><button className="link-button" type="button" onClick={onConnectGoogle}>Manage Google access</button></div></div>
       <div className="rail-section"><div className="section-title">Session</div><div className="metric-card"><div className="metric-label">Current step</div><div className="metric-value">{dashboard.current_step}</div></div><div className="metric-card"><div className="metric-label">Intent accuracy</div><div className="metric-value">{dashboard.intent_accuracy}%</div></div><div className="metric-card"><div className="metric-label">Visible area</div><div className="metric-value">{activeNav}</div><div className="artifact-copy compact-copy">{responseLength} response characters captured</div></div></div>
     </aside>
   );
@@ -550,14 +675,24 @@ export default function Home() {
   const [sectionLoading, setSectionLoading] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [theme, setTheme] = useState(getInitialTheme);
-  const [taskBusy, setTaskBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [preferencesBusy, setPreferencesBusy] = useState(false);
   const [preferencesForm, setPreferencesForm] = useState({ weather_location: "" });
-  const [taskForm, setTaskForm] = useState({
+  const [meetingForm, setMeetingForm] = useState({
     title: "",
     description: "",
-    priority: "medium",
-    due_date: "",
+    date: "",
+    duration_minutes: "30",
+    attendees: "",
+    location: "",
+  });
+  const [scheduleForm, setScheduleForm] = useState({
+    recipient_email: "",
+    city: "",
+    schedule_time: "18:00",
+    timezone: "Asia/Calcutta",
+    email_subject: "",
+    schedule_name: "",
   });
 
   async function refreshState() {
@@ -590,7 +725,6 @@ export default function Home() {
       if (navKey === "Gmail") records = await fetchEmails({ refresh, limit: 8 });
       else if (navKey === "Calendar") records = await fetchMeetings(6);
       else if (navKey === "GitHub") records = await getGithubRepos("", 6);
-      else if (navKey === "Tasks") records = await getTasks();
       else if (navKey === "Schedules") records = await getSchedules();
       else if (navKey === "Drive") records = await getDriveFiles(6);
       const normalized = normalizePanelItems(navKey, records);
@@ -645,7 +779,6 @@ export default function Home() {
       Gmail: artifacts.emails?.length ?? 0,
       Calendar: artifacts.meetings?.length ?? 0,
       GitHub: artifacts.repos?.length ?? 0,
-      Tasks: artifacts.tasks?.length ?? 0,
       Schedules: activeNav === "Schedules" ? sectionItems.length : artifacts.schedules?.length ?? 0,
       Drive: sectionItems.length,
     };
@@ -703,7 +836,8 @@ export default function Home() {
       setError("");
       setSectionItems([]);
       setSelectedItemId("");
-      setTaskForm({ title: "", description: "", priority: "medium", due_date: "" });
+      setMeetingForm({ title: "", description: "", date: "", duration_minutes: "30", attendees: "", location: "" });
+      setScheduleForm({ recipient_email: "", city: "", schedule_time: "18:00", timezone: "Asia/Calcutta", email_subject: "", schedule_name: "" });
       setPreferencesForm({ weather_location: "" });
       setActiveNav("Dashboard");
       await refreshGoogleStatus();
@@ -722,6 +856,33 @@ export default function Home() {
     }
   }
 
+  async function handleLogoutGoogle() {
+    setBusy(true);
+    try {
+      const result = await logoutGoogle();
+      if (result.dashboard) {
+        setDashboard(result.dashboard);
+      } else {
+        await refreshState();
+      }
+      await refreshGoogleStatus();
+      await refreshPreferences();
+      setMessage("");
+      setSearchTerm("");
+      setSectionItems([]);
+      setSelectedItemId("");
+      setMeetingForm({ title: "", description: "", date: "", duration_minutes: "30", attendees: "", location: "" });
+      setScheduleForm({ recipient_email: "", city: "", schedule_time: "18:00", timezone: "Asia/Calcutta", email_subject: "", schedule_name: "" });
+      setPreferencesForm({ weather_location: "" });
+      setActiveNav("Dashboard");
+      setError("");
+    } catch (logoutError) {
+      setError(logoutError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRefreshActive() {
     await loadNavData(activeNav, { refresh: activeNav === "Gmail" });
     if (activeNav === "Dashboard") await refreshGoogleStatus();
@@ -731,59 +892,58 @@ export default function Home() {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   }
 
-  function handleTaskFormChange(field, value) {
-    setTaskForm((current) => ({ ...current, [field]: value }));
+  function handleMeetingFormChange(field, value) {
+    setMeetingForm((current) => ({ ...current, [field]: value }));
   }
 
   function handlePreferencesChange(value) {
     setPreferencesForm({ weather_location: value });
   }
 
-  async function handleTaskCreate(event) {
+  function handleScheduleFormChange(field, value) {
+    setScheduleForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleMeetingCreate(event) {
     event.preventDefault();
-    setTaskBusy(true);
+    setActionBusy(true);
     try {
-      await createTask(taskForm);
-      setTaskForm({ title: "", description: "", priority: "medium", due_date: "" });
-      await loadNavData("Tasks");
-      setActiveNav("Tasks");
+      const start = new Date(meetingForm.date);
+      if (Number.isNaN(start.getTime())) throw new Error("Enter a valid meeting date and time.");
+      const durationMinutes = Math.max(1, Number.parseInt(meetingForm.duration_minutes, 10) || 30);
+      const end = new Date(start.getTime() + durationMinutes * 60000);
+      await createCalendarMeeting({
+        title: meetingForm.title.trim(),
+        description: meetingForm.description.trim(),
+        date: start.toISOString(),
+        end_date: end.toISOString(),
+        attendees: normalizeAttendees(meetingForm.attendees),
+        location: meetingForm.location.trim(),
+        duration_minutes: durationMinutes,
+      });
+      setMeetingForm({ title: "", description: "", date: "", duration_minutes: "30", attendees: "", location: "" });
+      await loadNavData("Calendar");
+      setActiveNav("Calendar");
       setError("");
-    } catch (taskError) {
-      setError(taskError.message);
+    } catch (meetingError) {
+      setError(meetingError.message);
     } finally {
-      setTaskBusy(false);
+      setActionBusy(false);
     }
   }
 
-  async function handleTaskStatusChange(taskId, status) {
-    setTaskBusy(true);
-    try {
-      await updateTaskStatus(taskId, status);
-      await loadNavData("Tasks");
-      setSelectedItemId(taskId);
-      setError("");
-    } catch (taskError) {
-      setError(taskError.message);
-    } finally {
-      setTaskBusy(false);
-    }
-  }
-
-  async function handleTaskDelete(taskId) {
-    setTaskBusy(true);
-    try {
-      await deleteTask(taskId);
-      await loadNavData("Tasks");
-      setError("");
-    } catch (taskError) {
-      setError(taskError.message);
-    } finally {
-      setTaskBusy(false);
-    }
+  function handleDraftMeetingFromEmail(item) {
+    const subject = item?.detailTitle || item?.title || "Inbox follow-up";
+    const body = item?.detailBody || item?.description || "";
+    const sender = item?.detailSections?.find((section) => section.label === "Sender")?.value || item?.subtitle || "";
+    const trimmedBody = cleanMultilineText(body).slice(0, 500);
+    setMessage(`Create a calendar meeting plan from this inbox email.\nTitle: ${subject}\nOrganizer context: ${sender}\nEmail summary:\n${trimmedBody}`);
+    setActiveNav("Dashboard");
+    setError("");
   }
 
   async function handleScheduleStatusChange(scheduleId, active) {
-    setTaskBusy(true);
+    setActionBusy(true);
     try {
       await updateScheduleStatus(scheduleId, active);
       await loadNavData("Schedules");
@@ -792,12 +952,12 @@ export default function Home() {
     } catch (scheduleError) {
       setError(scheduleError.message);
     } finally {
-      setTaskBusy(false);
+      setActionBusy(false);
     }
   }
 
   async function handleScheduleDelete(scheduleId) {
-    setTaskBusy(true);
+    setActionBusy(true);
     try {
       await deleteSchedule(scheduleId);
       await loadNavData("Schedules");
@@ -805,7 +965,23 @@ export default function Home() {
     } catch (scheduleError) {
       setError(scheduleError.message);
     } finally {
-      setTaskBusy(false);
+      setActionBusy(false);
+    }
+  }
+
+  async function handleScheduleCreate(event) {
+    event.preventDefault();
+    setActionBusy(true);
+    try {
+      await createSchedule(scheduleForm);
+      setScheduleForm({ recipient_email: "", city: "", schedule_time: "18:00", timezone: "Asia/Calcutta", email_subject: "", schedule_name: "" });
+      await loadNavData("Schedules");
+      setActiveNav("Schedules");
+      setError("");
+    } catch (scheduleError) {
+      setError(scheduleError.message);
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -830,7 +1006,7 @@ export default function Home() {
     <div className="app-shell">
       <div className="page-accent accent-one" />
       <div className="page-accent accent-two" />
-      <Header searchTerm={searchTerm} onSearchChange={setSearchTerm} onConnectGoogle={handleConnectGoogle} onRefreshActive={handleRefreshActive} onToggleTheme={handleToggleTheme} theme={theme} googleStatus={googleStatus} activeNav={activeNav} busy={busy} />
+      <Header searchTerm={searchTerm} onSearchChange={setSearchTerm} onConnectGoogle={handleConnectGoogle} onLogoutGoogle={handleLogoutGoogle} onRefreshActive={handleRefreshActive} onToggleTheme={handleToggleTheme} theme={theme} googleStatus={googleStatus} activeNav={activeNav} busy={busy} />
       <Sidebar activeNav={activeNav} onSelectNav={setActiveNav} onReset={handleReset} dashboard={dashboard} googleStatus={googleStatus} />
       <main className="main-column">
         <OverviewStrip dashboard={dashboard} googleStatus={googleStatus ?? {}} />
@@ -838,10 +1014,9 @@ export default function Home() {
         {activeNav === "Dashboard" ? (
           <>
             <Composer value={message} onChange={setMessage} onSubmit={handleSubmit} onClear={handleReset} busy={busy} />
-            <InsightsPanel dashboard={dashboard} />
             <PlanCard dashboard={dashboard} busy={busy} onApprove={handleApprove} onCancel={handleCancel} onEdit={() => setMessage(dashboard.prompt_preview || message)} />
             <ResponseCard dashboard={dashboard} />
-            <ArtifactsGrid artifacts={dashboard.artifacts ?? {}} />
+            <ResultsPanel artifacts={dashboard.artifacts ?? {}} />
             <LogsCard logs={dashboard.logs ?? []} />
           </>
         ) : (
@@ -853,18 +1028,20 @@ export default function Home() {
             loading={sectionLoading}
             searchTerm={searchTerm}
             onReload={handleRefreshActive}
-            taskForm={taskForm}
-            onTaskFormChange={handleTaskFormChange}
-            onTaskCreate={handleTaskCreate}
-            onTaskStatusChange={handleTaskStatusChange}
-            onTaskDelete={handleTaskDelete}
+            meetingForm={meetingForm}
+            onMeetingFormChange={handleMeetingFormChange}
+            onMeetingCreate={handleMeetingCreate}
+            onDraftMeetingFromEmail={handleDraftMeetingFromEmail}
             onScheduleStatusChange={handleScheduleStatusChange}
             onScheduleDelete={handleScheduleDelete}
-            taskBusy={taskBusy}
+            actionBusy={actionBusy}
             preferencesForm={preferencesForm}
             onPreferencesChange={handlePreferencesChange}
             onPreferencesSave={handlePreferencesSave}
             preferencesBusy={preferencesBusy}
+            scheduleForm={scheduleForm}
+            onScheduleFormChange={handleScheduleFormChange}
+            onScheduleCreate={handleScheduleCreate}
           />
         )}
       </main>

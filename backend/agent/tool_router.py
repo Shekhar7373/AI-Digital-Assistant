@@ -15,7 +15,7 @@ from services.task_service import create_task_from_context, get_all_tasks
 from services.weather_service import get_weather
 from services.github_service import fetch_repos, analyze_repo, fetch_github_updates
 from services.calendar_service import fetch_meetings, schedule_meeting_mock
-from services.drive_service import list_files, summarize_file_mock
+from services.drive_service import create_drive_text_file, list_files, summarize_file_mock
 from services.notification_service import send_summary_email
 from services.schedule_service import create_recurring_weather_email_schedule
 from services.web_research_service import research_web
@@ -38,6 +38,7 @@ TOOL_REGISTRY: dict = {
     "schedule_meeting":   lambda params: schedule_meeting_mock(params),
     "list_drive_files":   lambda params: list_files(),
     "summarize_file":     lambda params: summarize_file_mock(params.get("file_id", "")),
+    "create_drive_doc":   lambda params: create_drive_text_file(params),
     "web_research":       lambda params: research_web(params.get("query", "")),
     "send_email":         lambda params: send_summary_email(
         params.get("recipient_email", ""),

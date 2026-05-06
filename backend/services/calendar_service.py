@@ -3,40 +3,10 @@ Calendar Service.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from db.mongodb import get_db
-from services.google_auth_service import build_google_service
-
-MOCK_MEETINGS = [
-    {
-        "id": "meet_001",
-        "title": "Sprint Planning",
-        "date": (datetime.utcnow() + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M"),
-        "duration_minutes": 60,
-        "attendees": ["alice@company.com", "bob@company.com"],
-        "location": "Zoom",
-        "description": "Plan tasks for the upcoming sprint.",
-    },
-    {
-        "id": "meet_002",
-        "title": "Design Review",
-        "date": (datetime.utcnow() + timedelta(days=1, hours=3)).strftime("%Y-%m-%d %H:%M"),
-        "duration_minutes": 45,
-        "attendees": ["carol@company.com", "dave@company.com"],
-        "location": "Google Meet",
-        "description": "Review new UI mockups.",
-    },
-    {
-        "id": "meet_003",
-        "title": "1:1 with Manager",
-        "date": (datetime.utcnow() + timedelta(days=2)).strftime("%Y-%m-%d %H:%M"),
-        "duration_minutes": 30,
-        "attendees": ["manager@company.com"],
-        "location": "Office — Room 3A",
-        "description": "Weekly check-in.",
-    },
-]
+from services.google_auth_service import CALENDAR_WRITE_SCOPES, build_google_service, google_action_error
 
 MEETING_CACHE: list[dict] = []
 
@@ -105,6 +75,7 @@ def _schedule_meeting_sync(params: dict) -> dict:
         "location": created.get("location", ""),
         "status": created.get("status", "scheduled"),
         "source": "google_calendar",
+        "url": created.get("htmlLink", ""),
     }
 
 
@@ -115,7 +86,8 @@ async def _safe_replace_meetings(meetings: list[dict]):
     try:
         payload = [{k: v for k, v in meeting.items() if k != "_id"} for meeting in meetings]
         await db.meetings.delete_many({})
-        await db.meetings.insert_many(payload)
+        if payload:
+            await db.meetings.insert_many(payload)
     except Exception as error:
         print(f"[CalendarService] Failed to persist meetings: {error}")
 
@@ -131,44 +103,46 @@ async def _safe_insert_meeting(meeting: dict):
         print(f"[CalendarService] Failed to insert meeting: {error}")
 
 
+async def _safe_load_meetings(limit: int) -> list[dict]:
+    db = get_db()
+    if db is None:
+        return []
+    try:
+        return await db.meetings.find({}, {"_id": 0}).sort("date", 1).to_list(length=max(limit, 1))
+    except Exception as error:
+        print(f"[CalendarService] Failed to load meetings: {error}")
+        return []
+
+
 async def fetch_meetings(limit: int = 6) -> list[dict]:
     """
-    Fetch upcoming meetings from Google Calendar when authorized, otherwise use local fallback data.
+    Fetch upcoming meetings from Google Calendar and cache only real results.
     """
     global MEETING_CACHE
     max_results = max(1, min(limit or 6, 8))
     try:
         MEETING_CACHE = await asyncio.to_thread(_fetch_calendar_events_sync, max_results)
     except Exception as error:
-        print(f"[CalendarService] Calendar fetch failed, using fallback data: {error}")
-        MEETING_CACHE = [dict(meeting) for meeting in MOCK_MEETINGS[:max_results]]
+        print(f"[CalendarService] Calendar fetch failed: {error}")
+        cached = await _safe_load_meetings(max_results)
+        MEETING_CACHE = cached if cached else []
     await _safe_replace_meetings(MEETING_CACHE)
-    return MEETING_CACHE
+    return MEETING_CACHE[:max_results]
 
 
 async def schedule_meeting_mock(params: dict) -> dict:
     """
-    Schedule a real calendar event when authorized, otherwise use local fallback behavior.
+    Schedule a real calendar event when authorized.
     """
+    auth_error = google_action_error("create a Google Calendar event", CALENDAR_WRITE_SCOPES)
+    if auth_error:
+        return {"error": auth_error}
+
     try:
         meeting = await asyncio.to_thread(_schedule_meeting_sync, params)
     except Exception as error:
-        print(f"[CalendarService] Calendar insert failed, using fallback data: {error}")
-        title = params.get("title", "New Meeting")
-        date = params.get("date", (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"))
-        attendees = params.get("attendees", [])
-        duration = params.get("duration_minutes", 30)
-
-        meeting = {
-            "id": f"meet_{datetime.utcnow().timestamp():.0f}",
-            "title": title,
-            "date": date,
-            "duration_minutes": duration,
-            "attendees": attendees,
-            "location": "TBD",
-            "status": "scheduled",
-            "source": "fallback",
-        }
+        print(f"[CalendarService] Calendar insert failed: {error}")
+        return {"error": f"Unable to create the Google Calendar event: {error}"}
 
     MEETING_CACHE.append(meeting.copy())
     await _safe_insert_meeting(meeting)

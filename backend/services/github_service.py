@@ -48,7 +48,7 @@ async def fetch_repos(username: str, limit: int = 6) -> list[dict]:
             resp.raise_for_status()
             repos = resp.json()
         else:
-            return _mock_repos()
+            return []
 
     return [
         {
@@ -172,35 +172,3 @@ async def fetch_github_updates(username: str, limit: int = 5) -> dict:
         "summary": "Recent GitHub updates: " + "; ".join(highlights[:3]),
         "repos": enriched,
     }
-
-
-def _mock_repos() -> list[dict]:
-    """Demo repos when no username is provided."""
-    return [
-        {
-            "id": 1,
-            "name": "my-fastapi-app",
-            "full_name": "demo/my-fastapi-app",
-            "description": "A production FastAPI application with async support",
-            "language": "Python",
-            "stars": 42,
-            "forks": 8,
-            "open_issues": 3,
-            "url": "https://github.com/demo/my-fastapi-app",
-            "updated_at": "2024-01-15T10:00:00Z",
-            "topics": ["fastapi", "python", "api"],
-        },
-        {
-            "id": 2,
-            "name": "react-dashboard",
-            "full_name": "demo/react-dashboard",
-            "description": "Modern React dashboard with Tailwind CSS",
-            "language": "TypeScript",
-            "stars": 128,
-            "forks": 24,
-            "open_issues": 7,
-            "url": "https://github.com/demo/react-dashboard",
-            "updated_at": "2024-01-20T14:30:00Z",
-            "topics": ["react", "typescript", "tailwind"],
-        },
-    ]

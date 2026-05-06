@@ -1,4 +1,63 @@
 [DB] Connected to MongoDB: mongodb://localhost:27017 / agentic_assistant
 [ScheduleService] Scheduler loop started with 30s polling.
-[ScheduleService] Scheduler loop stopped.
-[DB] Disconnected from MongoDB
+INFO:     127.0.0.1:11989 - "GET /health HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: Send "Good Afternoon" greetings to mail : shekharmd7373@gmail.com
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /status
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /cancel
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: Say "Hello Vishwa" to gmail: vishwahansnur13@gmail.com
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: Say "Hello Shekhar" to gmail: sdoddamani421@gmail.com
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: What is an agentic AI?
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[ToolRouter] Cached web research result for response composition
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: Send "Good Afternoon" greetings to mail : sdoddamani421@gmail.com
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: Send "Good Afternoon" greetings to mail : vishwahansnur13@gmail.com
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /help
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /plan
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /plan review my github issues and draft tasks
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+[Telegram] Incoming update for chat 5566358565: /run
+[ToolRouter] Auto-wired 5 GitHub updates for next tool
+[Telegram] Sent reply to chat 5566358565
+INFO:     91.108.5.1:0 - "POST /integrations/telegram/webhook/telegram-webhook-9f4c7a2b6d1e8h3k HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8590 - "GET /favicon.ico HTTP/1.1" 404 Not Found
